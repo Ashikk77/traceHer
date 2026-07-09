@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../services/ble_manager.dart';
 
@@ -10,19 +12,38 @@ class DeviceConnectedPage extends StatefulWidget {
 
 class _DeviceConnectedPageState extends State<DeviceConnectedPage> {
   String lastMessage = "Waiting for Emergency...";
+  Timer? _resetTimer;
 
   @override
   void initState() {
     super.initState();
 
-    // Listen for messages from ESP32
     BleManager.instance.onMessageReceived = (message) {
       if (!mounted) return;
+
+      _resetTimer?.cancel();
 
       setState(() {
         lastMessage = message;
       });
+
+      if (message == "SOS") {
+        _resetTimer = Timer(const Duration(seconds: 5), () {
+          if (!mounted) return;
+
+          setState(() {
+            lastMessage = "Waiting for Emergency...";
+          });
+        });
+      }
     };
+  }
+
+  @override
+  void dispose() {
+    _resetTimer?.cancel();
+    BleManager.instance.disconnect();
+    super.dispose();
   }
 
   @override
@@ -45,9 +66,7 @@ class _DeviceConnectedPageState extends State<DeviceConnectedPage> {
                 color: Colors.green,
                 size: 100,
               ),
-
               const SizedBox(height: 20),
-
               Text(
                 device?.platformName ?? "TraceHer",
                 style: const TextStyle(
@@ -55,9 +74,7 @@ class _DeviceConnectedPageState extends State<DeviceConnectedPage> {
                   fontWeight: FontWeight.bold,
                 ),
               ),
-
               const SizedBox(height: 10),
-
               const Text(
                 "Device Connected Successfully",
                 style: TextStyle(
@@ -65,9 +82,7 @@ class _DeviceConnectedPageState extends State<DeviceConnectedPage> {
                   fontSize: 18,
                 ),
               ),
-
               const SizedBox(height: 40),
-
               Card(
                 child: ListTile(
                   leading: const Icon(Icons.emergency),
@@ -83,9 +98,7 @@ class _DeviceConnectedPageState extends State<DeviceConnectedPage> {
                   ),
                 ),
               ),
-
               const SizedBox(height: 10),
-
               const Card(
                 child: ListTile(
                   leading: Icon(Icons.battery_full),
@@ -93,9 +106,7 @@ class _DeviceConnectedPageState extends State<DeviceConnectedPage> {
                   subtitle: Text("Coming Soon"),
                 ),
               ),
-
               const SizedBox(height: 10),
-
               const Card(
                 child: ListTile(
                   leading: Icon(Icons.location_on),
