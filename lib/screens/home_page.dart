@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'device_scan_page.dart';
+
+import 'emergency_contacts_page.dart';
 
 class MyHomePage extends StatefulWidget {
   const MyHomePage({super.key, required this.title});
@@ -51,7 +52,7 @@ class _MyHomePageState extends State<MyHomePage> {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (context) => const DeviceScanPage(),
+                    builder: (context) => const EmergencyContactsPage(),
                   ),
                 );
               },
