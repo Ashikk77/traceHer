@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
-
+import 'package:permission_handler/permission_handler.dart';
 import '../models/emergency_contact.dart';
 import '../services/contact_service.dart';
 
@@ -51,7 +51,11 @@ class _AddContactPageState extends State<AddContactPage> {
   }
 
   Future<void> pickContact() async {
-    if (!await FlutterContacts.requestPermission()) {
+    var status = await Permission.contacts.request();
+
+    print("Permission Status: $status");
+
+    if (!status.isGranted) {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -66,7 +70,6 @@ class _AddContactPageState extends State<AddContactPage> {
 
     if (contact == null) return;
 
-
     if (contact.phones.isEmpty) {
       if (!mounted) return;
 
@@ -80,7 +83,10 @@ class _AddContactPageState extends State<AddContactPage> {
 
     setState(() {
       nameController.text = contact.displayName;
-      phoneController.text = contact.phones.first.number;
+      phoneController.text = contact.phones.first.number.replaceAll(
+        RegExp(r'[^0-9+]'),
+        '',
+      );
     });
   }
 
