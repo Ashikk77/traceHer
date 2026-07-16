@@ -1,24 +1,24 @@
 import 'package:flutter/material.dart';
-import 'screens/home_page.dart';
+import 'screens/splash_screen.dart';
 
 void main() {
-  runApp(const MyApp());
+  runApp(const TraceHerApp());
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class TraceHerApp extends StatelessWidget {
+  const TraceHerApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Trace',
+      title: 'TraceHer',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
           seedColor: Colors.green,
         ),
       ),
-      home: const MyHomePage(title: 'Ashik'),
+      home: const SplashScreen(),
     );
   }
 }

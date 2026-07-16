@@ -5,7 +5,9 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../services/ble_manager.dart';
-import 'device_connected_page.dart';
+
+import '../services/setup_service.dart';
+import 'home_page.dart';
 
 class DeviceScanPage extends StatefulWidget {
   const DeviceScanPage({super.key});
@@ -262,29 +264,22 @@ class _DeviceScanPageState extends State<DeviceScanPage> {
                 onPressed: () async {
 
                   await FlutterBluePlus.stopScan();
-
-
                   try {
 
-                    await bleManager.connect(
-                      device,
-                    );
+                    await bleManager.connect(device);
 
+// Save that first-time setup is complete
+                    await SetupService().completeSetup();
 
-                    if(!mounted) return;
-
+                    if (!mounted) return;
 
                     Navigator.pushReplacement(
-
                       context,
-
                       MaterialPageRoute(
-
-                        builder: (_) =>
-                        const DeviceConnectedPage(),
-
+                        builder: (_) => const MyHomePage(
+                          title: "TraceHer",
+                        ),
                       ),
-
                     );
 
 
