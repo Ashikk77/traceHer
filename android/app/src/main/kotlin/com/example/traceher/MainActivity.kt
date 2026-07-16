@@ -38,7 +38,11 @@ class MainActivity : FlutterActivity() {
                     }
 
                     try {
-                        val smsManager = SmsManager.getDefault()
+                        val smsManager = getSystemService(SmsManager::class.java)
+
+                        android.util.Log.d("TraceHer", "Phone: $phone")
+                        android.util.Log.d("TraceHer", "Message: $message")
+
                         smsManager.sendTextMessage(
                             phone,
                             null,
@@ -47,9 +51,12 @@ class MainActivity : FlutterActivity() {
                             null
                         )
 
+                        android.util.Log.d("TraceHer", "SmsManager executed")
+
                         result.success("SMS Sent")
 
                     } catch (e: Exception) {
+                        android.util.Log.e("TraceHer", "SMS Error", e)
                         result.error("FAILED", e.message, null)
                     }
                 } else {

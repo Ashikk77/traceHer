@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../services/contact_service.dart';
 import '../services/location_service.dart';
 import '../services/sms_service.dart';
 import 'emergency_contacts_page.dart';
@@ -18,6 +19,7 @@ class MyHomePage extends StatefulWidget {
 class _MyHomePageState extends State<MyHomePage> {
   final LocationService locationService = LocationService();
   final SmsService smsService = SmsService();
+  final ContactService contactService = ContactService();
 
   @override
   Widget build(BuildContext context) {
@@ -135,6 +137,7 @@ class _MyHomePageState extends State<MyHomePage> {
                   icon: const Icon(Icons.sms),
                   label: const Text("Test SMS"),
                   onPressed: () async {
+                    // Request SMS permission
                     PermissionStatus status =
                     await Permission.sms.request();
 
@@ -149,17 +152,59 @@ class _MyHomePageState extends State<MyHomePage> {
                       return;
                     }
 
-                    await smsService.sendSMS(
-                      phone: "7736172422",
-                      message:
-                      "🚨 TraceHer Test 🚨\n\nThis is an automatic SMS sent from TraceHer.",
-                    );
+                    // Get current location
+                    Position? position =
+                    await locationService.getCurrentLocation();
+
+                    if (position == null) {
+                      if (!context.mounted) return;
+
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content:
+                          Text("Unable to get current location"),
+                        ),
+                      );
+                      return;
+                    }
+
+                    // Load saved contacts
+                    final contacts =
+                    await contactService.getContacts();
+
+                    if (contacts.isEmpty) {
+                      if (!context.mounted) return;
+
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content:
+                          Text("No emergency contacts found"),
+                        ),
+                      );
+                      return;
+                    }
+
+                    // Create SMS message
+                    String message =
+                        "Hello!\n\n"
+                        "This is a location test from my Flutter application.\n\n"
+                        "Current Location:\n"
+                        "https://maps.google.com/?q=${position.latitude},${position.longitude}";
+
+                    // Send SMS to all contacts
+                    for (final contact in contacts) {
+                      await smsService.sendSMS(
+                        phone: contact.phoneNumber,
+                        message: message,
+                      );
+                    }
 
                     if (!context.mounted) return;
 
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
-                        content: Text("SMS Request Sent"),
+                        content:
+                        Text("Location SMS sent successfully"),
                       ),
                     );
                   },
