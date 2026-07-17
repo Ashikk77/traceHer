@@ -7,13 +7,17 @@ class SmsService {
     required String phone,
     required String message,
   }) async {
+    print("Calling native SMS...");
+    print("Phone: $phone");
+    print("Message: $message");
+
     try {
       final result = await _channel.invokeMethod('sendSMS', {
         'phone': phone,
         'message': message,
       });
 
-      print(result);
+      print("Native Result: $result");
     } on PlatformException catch (e) {
       print("SMS Error: ${e.message}");
     }
