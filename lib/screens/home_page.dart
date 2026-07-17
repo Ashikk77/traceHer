@@ -7,6 +7,7 @@ import '../services/sms_service.dart';
 import 'emergency_contacts_page.dart';
 import '../models/user_profile.dart';
 import '../services/user_service.dart';
+import '../services/sms_service_v2.dart';
 
 class MyHomePage extends StatefulWidget {
   const MyHomePage({super.key, required this.title});
@@ -20,6 +21,7 @@ class MyHomePage extends StatefulWidget {
 class _MyHomePageState extends State<MyHomePage> {
   final LocationService locationService = LocationService();
   final SmsService smsService = SmsService();
+  final SmsServiceV2 smsServiceV2 = SmsServiceV2();
   final ContactService contactService = ContactService();
   final UserService userService = UserService();
 
@@ -73,6 +75,23 @@ class _MyHomePageState extends State<MyHomePage> {
       loadingLocation = false;
     });
 
+  }
+
+  Future<void> testSMSV2() async {
+
+    await smsServiceV2.sendSMS(
+      phone: "9061220407",
+      message: "TraceHer V2 Test Message",
+    );
+
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text("V2 SMS Triggered"),
+      ),
+    );
   }
 
   Future<void> sendTestSOS() async {
@@ -328,6 +347,7 @@ class _MyHomePageState extends State<MyHomePage> {
             }),
             const SizedBox(height: 15),
 
+
             actionButton(Icons.warning_amber_rounded, "Test SOS", sendTestSOS),
             const SizedBox(height: 15),
 
@@ -336,6 +356,13 @@ class _MyHomePageState extends State<MyHomePage> {
                 const SnackBar(content: Text("Coming Soon")),
               );
             }),
+            const SizedBox(height: 15),
+
+            actionButton(
+              Icons.sms,
+              "Test SMS V2",
+              testSMSV2,
+            ),
           ],
         ),
       ),
