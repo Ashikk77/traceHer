@@ -1,13 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:permission_handler/permission_handler.dart';
 import '../services/contact_service.dart';
 import '../services/location_service.dart';
-import '../services/sms_service.dart';
 import 'emergency_contacts_page.dart';
 import '../models/user_profile.dart';
 import '../services/user_service.dart';
-import '../services/sms_service_v2.dart';
+import '../services/sms_service.dart';
 
 class MyHomePage extends StatefulWidget {
   const MyHomePage({super.key, required this.title});
@@ -21,7 +19,6 @@ class MyHomePage extends StatefulWidget {
 class _MyHomePageState extends State<MyHomePage> {
   final LocationService locationService = LocationService();
   final SmsService smsService = SmsService();
-  final SmsServiceV2 smsServiceV2 = SmsServiceV2();
   final ContactService contactService = ContactService();
   final UserService userService = UserService();
 
@@ -77,11 +74,11 @@ class _MyHomePageState extends State<MyHomePage> {
 
   }
 
-  Future<void> testSMSV2() async {
+  Future<void> testSOS() async {
 
-    await smsServiceV2.sendSMS(
+    await smsService.sendSMS(
       phone: "9061220407",
-      message: "TraceHer V2 Test Message",
+      message: "🚨 TraceHer SOS Test Alert\n\nThis is a test emergency message.",
     );
 
 
@@ -89,58 +86,11 @@ class _MyHomePageState extends State<MyHomePage> {
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text("V2 SMS Triggered"),
+        content: Text("SOS Test Sent Successfully"),
       ),
     );
   }
 
-  Future<void> sendTestSOS() async {
-    PermissionStatus status = await Permission.sms.request();
-
-    if (!status.isGranted) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("SMS Permission Denied")),
-      );
-      return;
-    }
-
-    Position? position = await locationService.getCurrentLocation();
-    if (position == null) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Unable to get location")),
-      );
-      return;
-    }
-
-    final contacts = await contactService.getContacts();
-    if (contacts.isEmpty) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("No Emergency Contacts")),
-      );
-      return;
-    }
-
-    String message =
-        "🚨 TraceHer Test SOS\n\n"
-        "This is a test emergency alert.\n\n"
-        "Location:\n"
-        "https://maps.google.com/?q=${position.latitude},${position.longitude}";
-
-    for (final contact in contacts) {
-      await smsService.sendSMS(
-        phone: contact.phoneNumber,
-        message: message,
-      );
-    }
-
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Test SOS Sent Successfully")),
-    );
-  }
 
   Widget statusTile(IconData icon, String title, String value, Color color) {
     return Expanded(
@@ -348,9 +298,6 @@ class _MyHomePageState extends State<MyHomePage> {
             const SizedBox(height: 15),
 
 
-            actionButton(Icons.warning_amber_rounded, "Test SOS", sendTestSOS),
-            const SizedBox(height: 15),
-
             actionButton(Icons.settings, "Device Settings", () {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text("Coming Soon")),
@@ -359,9 +306,9 @@ class _MyHomePageState extends State<MyHomePage> {
             const SizedBox(height: 15),
 
             actionButton(
-              Icons.sms,
-              "Test SMS V2",
-              testSMSV2,
+              Icons.warning_amber_rounded,
+              "Test SOS",
+              testSOS,
             ),
           ],
         ),
