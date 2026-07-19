@@ -2,11 +2,19 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:geolocator/geolocator.dart';
+import 'location_service.dart';
+import 'contact_service.dart';
+import 'sms_service.dart';
 
 class BleManager {
   BleManager._();
 
   static final BleManager instance = BleManager._();
+
+  final LocationService _locationService = LocationService();
+  final ContactService _contactService = ContactService();
+  final SmsService _smsService = SmsService();
 
   static const String targetDeviceName = "traceHer";
   static const String serviceUuid = "12345678-1234-1234-1234-1234567890AB";
@@ -195,10 +203,10 @@ class BleManager {
             await _notifySubscription?.cancel();
 
             _notifySubscription =
-                characteristic.lastValueStream.listen((value) {
+                characteristic.lastValueStream.listen((value) async {
                   if (value.isEmpty) return;
 
-                  String message = utf8.decode(value);
+                  String message = utf8.decode(value).trim();
 
                   debugPrint("Received : $message");
 
@@ -214,6 +222,46 @@ class BleManager {
     }
 
     debugPrint("Characteristic Not Found");
+  }
+
+  Future<void> _handleSOS() async {
+    debugPrint("========== SOS RECEIVED ==========");
+
+    Position? position =
+    await _locationService.getCurrentLocation();
+
+    if (position == null) {
+      debugPrint("Location unavailable");
+      return;
+    }
+
+    final contacts =
+    await _contactService.getContacts();
+
+    if (contacts.isEmpty) {
+      debugPrint("No emergency contacts saved");
+      return;
+    }
+
+    String googleMapLink =
+        "https://maps.google.com/?q=${position.latitude},${position.longitude}";
+
+    String message =
+        "🚨 TraceHer Emergency Alert\n\n"
+        "I need immediate help.\n\n"
+        "My Location:\n"
+        "$googleMapLink";
+
+    for (final contact in contacts) {
+      debugPrint("Sending SMS to ${contact.phoneNumber}");
+
+      await _smsService.sendSMS(
+        phone: contact.phoneNumber,
+        message: message,
+      );
+    }
+
+    debugPrint("All emergency SMS sent");
   }
 
   void dispose() {

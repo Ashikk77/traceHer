@@ -6,6 +6,7 @@ import 'emergency_contacts_page.dart';
 import '../models/user_profile.dart';
 import '../services/user_service.dart';
 import '../services/sms_service.dart';
+import '../services/ble_manager.dart';
 
 class MyHomePage extends StatefulWidget {
   const MyHomePage({super.key, required this.title});
@@ -35,6 +36,14 @@ class _MyHomePageState extends State<MyHomePage> {
     loadProfile();
     loadContacts();
     getCurrentLocation();
+
+    BleManager.instance.onMessageReceived = (message) async {
+      if (message.trim() == "SOS") {
+        debugPrint("HomePage received SOS");
+
+        await testSOS(); // Temporary test
+      }
+    };
   }
 
   Future<void> loadProfile() async {
