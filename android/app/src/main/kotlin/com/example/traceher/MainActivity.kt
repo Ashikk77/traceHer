@@ -69,10 +69,11 @@ class MainActivity : FlutterActivity() {
                             getSystemService(SmsManager::class.java)
 
 
-                        smsManager.sendTextMessage(
+                        val parts = smsManager.divideMessage(message)
+                        smsManager.sendMultipartTextMessage(
                             phone,
                             null,
-                            message,
+                            parts,
                             null,
                             null
                         )
@@ -148,14 +149,15 @@ class MainActivity : FlutterActivity() {
                         )
 
 
-                        smsManager.sendTextMessage(
+                        val parts = smsManager.divideMessage(message)
+
+                        smsManager.sendMultipartTextMessage(
                             phone,
                             null,
-                            message,
+                            parts,
                             null,
                             null
                         )
-
 
                         android.util.Log.d(
                             "TraceHerV2",

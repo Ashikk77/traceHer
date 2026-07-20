@@ -84,12 +84,49 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   Future<void> testSOS() async {
+    debugPrint("STEP 1");
 
-    await smsService.sendSMS(
-      phone: "9061220407",
-      message: "🚨 TraceHer SOS Test Alert\n\nThis is a test emergency message.",
-    );
+    // Get fresh GPS location
+    Position? position = await locationService.getCurrentLocation();
 
+    if (position == null) {
+      debugPrint("Location unavailable");
+      return;
+    }
+
+    // Create Google Maps link
+    final mapLink =
+        "https://maps.google.com/?q=${position.latitude},${position.longitude}";
+
+    // Load saved contacts
+    final contacts = await contactService.getContacts();
+
+    if (contacts.isEmpty) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("No emergency contacts saved."),
+        ),
+      );
+      return;
+    }
+
+    // Send SMS to every contact
+    for (final contact in contacts) {
+      debugPrint("Sending SMS to: ${contact.phoneNumber}");
+
+      await smsService.sendSMS(
+        phone: contact.phoneNumber,
+        message:
+        "🚨 TraceHer SOS Test Alert\n\n"
+            "I need immediate assistance.\n\n"
+            "Location:\n"
+            "$mapLink",
+      );
+    }
+
+    debugPrint("STEP 2");
 
     if (!mounted) return;
 
@@ -98,6 +135,8 @@ class _MyHomePageState extends State<MyHomePage> {
         content: Text("SOS Test Sent Successfully"),
       ),
     );
+
+    debugPrint("STEP 3");
   }
 
 
