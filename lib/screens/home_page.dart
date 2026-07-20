@@ -44,6 +44,13 @@ class _MyHomePageState extends State<MyHomePage> {
         await testSOS(); // Temporary test
       }
     };
+
+    BleManager.instance.onConnectionChanged = () {
+      if (!mounted) return;
+
+      setState(() {});
+    };
+
   }
 
   Future<void> loadProfile() async {
@@ -214,27 +221,49 @@ class _MyHomePageState extends State<MyHomePage> {
                 child: Column(
                   children: [
                     Row(
-                      children: const [
-                        CircleAvatar(
+                      children: [
+                        const CircleAvatar(
                           radius: 22,
                           backgroundColor: Colors.green,
                           child: Icon(Icons.bluetooth_connected, color: Colors.white),
                         ),
-                        SizedBox(width: 15),
+                        const SizedBox(width: 15),
+
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text("Device Status", style: TextStyle(color: Colors.grey)),
-                              SizedBox(height: 3),
+                              const Text(
+                                "Device Status",
+                                style: TextStyle(color: Colors.grey),
+                              ),
+                              const SizedBox(height: 3),
+
                               Text(
-                                "Connected",
-                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
+                                BleManager.instance.isConnected
+                                    ? "Connected"
+                                    : "Disconnected",
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 20,
+                                  color: BleManager.instance.isConnected
+                                      ? Colors.green
+                                      : Colors.red,
+                                ),
                               ),
                             ],
                           ),
                         ),
-                        Icon(Icons.check_circle, color: Colors.green, size: 30),
+
+                        Icon(
+                          BleManager.instance.isConnected
+                              ? Icons.check_circle
+                              : Icons.cancel,
+                          color: BleManager.instance.isConnected
+                              ? Colors.green
+                              : Colors.red,
+                          size: 30,
+                        ),
                       ],
                     ),
                     const Divider(height: 30),

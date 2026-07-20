@@ -7,6 +7,7 @@ import 'location_service.dart';
 import 'contact_service.dart';
 import 'sms_service.dart';
 
+
 class BleManager {
   BleManager._();
 
@@ -24,7 +25,10 @@ class BleManager {
   BluetoothDevice? connectedDevice;
   BluetoothCharacteristic? notifyCharacteristic;
 
+
   Function(String message)? onMessageReceived;
+
+  VoidCallback? onConnectionChanged;
 
   StreamSubscription<List<ScanResult>>? _scanSubscription;
   StreamSubscription<BluetoothConnectionState>? _connectionSubscription;
@@ -32,6 +36,7 @@ class BleManager {
 
   bool _reconnecting = false;
   bool allowReconnect = false;
+  bool isConnected = false;
 
   Future<void> connect(BluetoothDevice device) async {
     connectedDevice = device;
@@ -46,9 +51,16 @@ class BleManager {
 
     debugPrint("Connected to ${device.platformName}");
 
+    isConnected = true;
+
     _listenConnection(device);
 
     await _discoverServices(device);
+
+    isConnected = true;
+    onConnectionChanged?.call();
+
+    debugPrint("BLE Connected");
   }
 
   void _listenConnection(BluetoothDevice device) {
@@ -58,8 +70,16 @@ class BleManager {
         device.connectionState.listen((state) async {
           debugPrint("Connection State : $state");
 
+          if (state == BluetoothConnectionState.connected) {
+            isConnected = true;
+            debugPrint("BLE Connected");
+          }
+
           if (state == BluetoothConnectionState.disconnected) {
-            debugPrint("Device Disconnected");
+            isConnected = false;
+            onConnectionChanged?.call();
+
+            debugPrint("BLE Disconnected");
 
             await reconnect();
           }
@@ -175,6 +195,9 @@ class BleManager {
         await connectedDevice!.disconnect();
       } catch (_) {}
     }
+
+    isConnected = false;
+    onConnectionChanged?.call();
 
     connectedDevice = null;
     notifyCharacteristic = null;
