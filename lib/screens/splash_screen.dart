@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
-
 import '../services/setup_service.dart';
+import '../services/ble_manager.dart';
 import 'home_page.dart';
 import 'welcome_page.dart';
+import '../services/background_service.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -17,16 +18,27 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   void initState() {
     super.initState();
+
     checkSetup();
   }
 
   Future<void> checkSetup() async {
-    // Show splash screen for 2 seconds
-    await Future.delayed(const Duration(seconds: 2));
+    await Future.delayed(
+      const Duration(seconds: 2),
+    );
+
+    bool completed =
+    await setupService.isSetupCompleted();
+
+    if (completed) {
+      await BackgroundService.start();
+    }
 
     if (!mounted) return;
 
-    bool completed = await setupService.isSetupCompleted();
+    if (completed) {
+      BleManager.instance.loadSavedDevice();
+    }
 
     Navigator.pushReplacement(
       context,

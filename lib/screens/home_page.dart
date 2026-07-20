@@ -37,11 +37,21 @@ class _MyHomePageState extends State<MyHomePage> {
     loadContacts();
     getCurrentLocation();
 
+    // Start BLE reconnect after entering Home page
+    Future.delayed(
+      const Duration(seconds: 1),
+          () {
+        if (!BleManager.instance.isConnected) {
+          BleManager.instance.loadSavedDevice();
+        }
+      },
+    );
+
     BleManager.instance.onMessageReceived = (message) async {
       if (message.trim() == "SOS") {
         debugPrint("HomePage received SOS");
 
-        await testSOS(); // Temporary test
+        await testSOS();
       }
     };
 
@@ -50,7 +60,6 @@ class _MyHomePageState extends State<MyHomePage> {
 
       setState(() {});
     };
-
   }
 
   Future<void> loadProfile() async {
