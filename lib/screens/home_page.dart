@@ -7,6 +7,7 @@ import '../models/user_profile.dart';
 import '../services/user_service.dart';
 import '../services/sms_service.dart';
 import '../services/ble_manager.dart';
+import '../services/location_manager.dart';
 
 class MyHomePage extends StatefulWidget {
   const MyHomePage({super.key, required this.title});
@@ -33,11 +34,16 @@ class _MyHomePageState extends State<MyHomePage> {
   void initState() {
     super.initState();
 
+    _initialize();
+  }
+
+  Future<void> _initialize() async {
+    await LocationManager.instance.startTracking();
+
     loadProfile();
     loadContacts();
     getCurrentLocation();
 
-    // Start BLE reconnect after entering Home page
     Future.delayed(
       const Duration(seconds: 1),
           () {
@@ -50,17 +56,16 @@ class _MyHomePageState extends State<MyHomePage> {
     BleManager.instance.onMessageReceived = (message) async {
       if (message.trim() == "SOS") {
         debugPrint("HomePage received SOS");
-
         await testSOS();
       }
     };
 
     BleManager.instance.onConnectionChanged = () {
       if (!mounted) return;
-
       setState(() {});
     };
   }
+
 
   Future<void> loadProfile() async {
     final profile = await userService.getProfile();
@@ -103,16 +108,18 @@ class _MyHomePageState extends State<MyHomePage> {
     debugPrint("STEP 1");
 
     // Get fresh GPS location
-    Position? position = await locationService.getCurrentLocation();
+    Position? position = LocationManager.instance.lastPosition;
 
-    if (position == null) {
-      debugPrint("Location unavailable");
-      return;
+    debugPrint("Cached Location: $position");
+
+    String mapLink;
+
+    if (position != null) {
+      mapLink =
+      "https://maps.google.com/?q=${position.latitude},${position.longitude}";
+    } else {
+      mapLink = "Location unavailable";
     }
-
-    // Create Google Maps link
-    final mapLink =
-        "https://maps.google.com/?q=${position.latitude},${position.longitude}";
 
     // Load saved contacts
     final contacts = await contactService.getContacts();
