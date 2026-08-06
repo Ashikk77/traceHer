@@ -1,7 +1,14 @@
 import 'package:flutter/material.dart';
-import 'screens/splash_screen.dart';
 
-void main() {
+import 'screens/splash_screen.dart';
+import 'services/background_service.dart';
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Start Android Foreground Service
+  await BackgroundService.start();
+
   runApp(const TraceHerApp());
 }
 

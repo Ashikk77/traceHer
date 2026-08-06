@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 class BackgroundService {
@@ -8,7 +9,7 @@ class BackgroundService {
     try {
       await _channel.invokeMethod("startService");
     } catch (e) {
-      print("Background Service Error: $e");
+      debugPrint("Background Service Error: $e");
     }
   }
 }
