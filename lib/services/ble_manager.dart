@@ -264,6 +264,9 @@ class BleManager {
   // AUTO RECONNECT
   // ==============================
   Future<void> reconnect() async {
+    if (savedDeviceId == null) {
+      savedDeviceId = await getSavedDevice();
+    }
     if (!allowReconnect) {
       debugPrint("Reconnect disabled");
       return;
@@ -281,7 +284,7 @@ class BleManager {
 
     _scanSubscription = FlutterBluePlus.scanResults.listen((results) async {
       for (final result in results) {
-        if (result.device.platformName.toLowerCase() == targetDeviceName.toLowerCase()) {
+        if (savedDeviceId != null && result.device.remoteId.str == savedDeviceId) {
           debugPrint("TraceHer Found!");
           _reconnecting = false;
           await FlutterBluePlus.stopScan();

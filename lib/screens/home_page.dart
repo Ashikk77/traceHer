@@ -38,6 +38,11 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   Future<void> _initialize() async {
+
+    // Start reconnect in background
+    BleManager.instance.loadSavedDevice();
+
+    // Start GPS tracking
     await LocationManager.instance.startTracking();
 
     loadProfile();
