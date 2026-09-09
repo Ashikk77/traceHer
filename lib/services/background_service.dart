@@ -12,4 +12,13 @@ class BackgroundService {
       debugPrint("Background Service Error: $e");
     }
   }
+
+  static Future<void> startBleMonitoring() async {
+    try {
+      await _channel.invokeMethod("startBleMonitoring");
+      debugPrint("TraceHer: Native BLE monitoring requested");
+    } catch (e) {
+      debugPrint("Native BLE Monitoring Error: $e");
+    }
+  }
 }

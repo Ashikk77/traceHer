@@ -30,15 +30,39 @@ class MainActivity : FlutterActivity() {
 
                 "startService" -> {
 
-                    val intent = Intent(this, BleForegroundService::class.java)
+                    val intent =
+                        Intent(this, BleForegroundService::class.java)
 
-                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    if (android.os.Build.VERSION.SDK_INT >=
+                        android.os.Build.VERSION_CODES.O
+                    ) {
                         startForegroundService(intent)
                     } else {
                         startService(intent)
                     }
 
                     result.success("Service Started")
+                }
+
+                "startBleMonitoring" -> {
+
+                    val intent =
+                        Intent(this, BleForegroundService::class.java)
+
+                    if (android.os.Build.VERSION.SDK_INT >=
+                        android.os.Build.VERSION_CODES.O
+                    ) {
+                        startForegroundService(intent)
+                    } else {
+                        startService(intent)
+                    }
+
+                    android.util.Log.d(
+                        "TraceHerService",
+                        "Native BLE monitoring requested from Flutter"
+                    )
+
+                    result.success("BLE Monitoring Started")
                 }
 
                 else -> result.notImplemented()
@@ -89,7 +113,8 @@ class MainActivity : FlutterActivity() {
                     val smsManager =
                         getSystemService(SmsManager::class.java)
 
-                    val parts = smsManager.divideMessage(message)
+                    val parts =
+                        smsManager.divideMessage(message)
 
                     smsManager.sendMultipartTextMessage(
                         phone,
@@ -157,7 +182,8 @@ class MainActivity : FlutterActivity() {
                         "Message: $message"
                     )
 
-                    val parts = smsManager.divideMessage(message)
+                    val parts =
+                        smsManager.divideMessage(message)
 
                     smsManager.sendMultipartTextMessage(
                         phone,
