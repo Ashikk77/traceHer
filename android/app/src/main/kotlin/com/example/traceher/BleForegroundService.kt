@@ -18,17 +18,23 @@ import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.location.Location
+import android.location.LocationManager
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.telephony.SmsManager
+import android.util.Base64
 import android.util.Log
 import androidx.core.app.ActivityCompat
+import org.json.JSONArray
 import java.util.UUID
 
 class BleForegroundService : Service() {
 
     companion object {
+
         private const val CHANNEL_ID = "traceher_service"
         private const val TAG = "TraceHerService"
         private const val NOTIFICATION_ID = 1
@@ -41,9 +47,11 @@ class BleForegroundService : Service() {
         private const val CHARACTERISTIC_UUID =
             "87654321-4321-4321-4321-BA0987654321"
 
-        // Standard Client Characteristic Configuration Descriptor
         private const val CCCD_UUID =
             "00002902-0000-1000-8000-00805f9b34fb"
+
+        private const val CONTACTS_KEY =
+            "emergency_contacts"
     }
 
     private var scanner: BluetoothLeScanner? = null
@@ -53,7 +61,8 @@ class BleForegroundService : Service() {
     private var isScanning = false
     private var isConnecting = false
 
-    private val handler = Handler(Looper.getMainLooper())
+    private val handler =
+        Handler(Looper.getMainLooper())
 
     // =========================================================
     // SERVICE CREATED
@@ -67,26 +76,30 @@ class BleForegroundService : Service() {
 
         createNotificationChannel()
 
-        val notification = Notification.Builder(
-            this,
-            CHANNEL_ID
-        )
-            .setContentTitle("TraceHer")
-            .setContentText(
-                "Monitoring emergency device..."
+        val notification =
+            Notification.Builder(
+                this,
+                CHANNEL_ID
             )
-            .setSmallIcon(
-                android.R.drawable.stat_sys_data_bluetooth
-            )
-            .setOngoing(true)
-            .build()
+                .setContentTitle("TraceHer")
+                .setContentText(
+                    "Monitoring emergency device..."
+                )
+                .setSmallIcon(
+                    android.R.drawable.stat_sys_data_bluetooth
+                )
+                .setOngoing(true)
+                .build()
 
         startForeground(
             NOTIFICATION_ID,
             notification
         )
 
-        Log.e(TAG, "Foreground Started")
+        Log.e(
+            TAG,
+            "Foreground Started"
+        )
     }
 
     // =========================================================
@@ -99,24 +112,30 @@ class BleForegroundService : Service() {
         startId: Int
     ): Int {
 
-        Log.e(TAG, "onStartCommand()")
-
-        val prefs = getSharedPreferences(
-            "FlutterSharedPreferences",
-            Context.MODE_PRIVATE
+        Log.e(
+            TAG,
+            "onStartCommand()"
         )
 
-        var deviceAddress = prefs.getString(
-            "flutter.$SAVED_DEVICE_KEY",
-            null
-        )
+        val prefs =
+            getSharedPreferences(
+                "FlutterSharedPreferences",
+                Context.MODE_PRIVATE
+            )
+
+        var deviceAddress =
+            prefs.getString(
+                "flutter.$SAVED_DEVICE_KEY",
+                null
+            )
 
         if (deviceAddress == null) {
 
-            deviceAddress = prefs.getString(
-                SAVED_DEVICE_KEY,
-                null
-            )
+            deviceAddress =
+                prefs.getString(
+                    SAVED_DEVICE_KEY,
+                    null
+                )
         }
 
         Log.e(
@@ -133,17 +152,13 @@ class BleForegroundService : Service() {
 
         } else {
 
-            targetAddress = deviceAddress
+            targetAddress =
+                deviceAddress
 
             Log.e(
                 TAG,
                 "Target Address Set = $targetAddress"
             )
-
-            /*
-             * Start scan only if we are not already connected,
-             * connecting, or scanning.
-             */
 
             if (
                 bluetoothGatt == null &&
@@ -152,6 +167,7 @@ class BleForegroundService : Service() {
             ) {
 
                 startBleScan()
+
             } else {
 
                 Log.e(
@@ -160,11 +176,6 @@ class BleForegroundService : Service() {
                 )
             }
         }
-
-        /*
-         * START_STICKY tells Android that this service is intended
-         * to remain running if the process is recreated.
-         */
 
         return START_STICKY
     }
@@ -177,19 +188,14 @@ class BleForegroundService : Service() {
         rootIntent: Intent?
     ) {
 
-        super.onTaskRemoved(rootIntent)
+        super.onTaskRemoved(
+            rootIntent
+        )
 
         Log.e(
             TAG,
             "onTaskRemoved() - foreground service still running"
         )
-
-        /*
-         * We intentionally do NOT stop the BLE service here.
-         *
-         * The Flutter application can disappear from Recents,
-         * while this foreground service continues monitoring BLE.
-         */
 
         if (
             bluetoothGatt == null &&
@@ -213,17 +219,26 @@ class BleForegroundService : Service() {
 
     override fun onDestroy() {
 
-        Log.e(TAG, "onDestroy()")
+        Log.e(
+            TAG,
+            "onDestroy()"
+        )
 
         try {
-            scanner?.stopScan(scanCallback)
+
+            scanner?.stopScan(
+                scanCallback
+            )
+
         } catch (_: Exception) {
         }
 
         isScanning = false
 
         try {
+
             bluetoothGatt?.close()
+
         } catch (_: Exception) {
         }
 
@@ -323,7 +338,8 @@ class BleForegroundService : Service() {
             return
         }
 
-        scanner = adapter.bluetoothLeScanner
+        scanner =
+            adapter.bluetoothLeScanner
 
         if (scanner == null) {
 
@@ -335,11 +351,12 @@ class BleForegroundService : Service() {
             return
         }
 
-        val settings = ScanSettings.Builder()
-            .setScanMode(
-                ScanSettings.SCAN_MODE_LOW_LATENCY
-            )
-            .build()
+        val settings =
+            ScanSettings.Builder()
+                .setScanMode(
+                    ScanSettings.SCAN_MODE_LOW_LATENCY
+                )
+                .build()
 
         try {
 
@@ -379,7 +396,8 @@ class BleForegroundService : Service() {
                 result: ScanResult
             ) {
 
-                val device = result.device
+                val device =
+                    result.device
 
                 if (
                     ActivityCompat.checkSelfPermission(
@@ -416,7 +434,9 @@ class BleForegroundService : Service() {
 
                     stopBleScan()
 
-                    connectToDevice(device)
+                    connectToDevice(
+                        device
+                    )
                 }
             }
 
@@ -430,10 +450,6 @@ class BleForegroundService : Service() {
                     TAG,
                     "Scan Failed : $errorCode"
                 )
-
-                /*
-                 * Try again after a short delay.
-                 */
 
                 scheduleReconnect()
             }
@@ -458,7 +474,9 @@ class BleForegroundService : Service() {
                 ) == PackageManager.PERMISSION_GRANTED
             ) {
 
-                scanner?.stopScan(scanCallback)
+                scanner?.stopScan(
+                    scanCallback
+                )
             }
 
         } catch (e: Exception) {
@@ -518,7 +536,9 @@ class BleForegroundService : Service() {
         isConnecting = true
 
         try {
+
             bluetoothGatt?.close()
+
         } catch (_: Exception) {
         }
 
@@ -526,11 +546,12 @@ class BleForegroundService : Service() {
 
         try {
 
-            bluetoothGatt = device.connectGatt(
-                this,
-                false,
-                gattCallback
-            )
+            bluetoothGatt =
+                device.connectGatt(
+                    this,
+                    false,
+                    gattCallback
+                )
 
             Log.e(
                 TAG,
@@ -605,10 +626,6 @@ class BleForegroundService : Service() {
                         return
                     }
 
-                    /*
-                     * Ask Android to discover the ESP32 services.
-                     */
-
                     val result =
                         gatt.discoverServices()
 
@@ -616,7 +633,6 @@ class BleForegroundService : Service() {
                         TAG,
                         "Service discovery started = $result"
                     )
-
                 }
 
                 // =================================================
@@ -635,10 +651,6 @@ class BleForegroundService : Service() {
                         "GATT DISCONNECTED"
                     )
 
-                    /*
-                     * Status 8 is GATT connection timeout.
-                     */
-
                     if (status == 8) {
 
                         Log.e(
@@ -648,17 +660,15 @@ class BleForegroundService : Service() {
                     }
 
                     try {
+
                         gatt.close()
+
                     } catch (_: Exception) {
                     }
 
                     if (bluetoothGatt == gatt) {
                         bluetoothGatt = null
                     }
-
-                    /*
-                     * Automatically search for ESP32 again.
-                     */
 
                     scheduleReconnect()
                 }
@@ -698,15 +708,12 @@ class BleForegroundService : Service() {
                     return
                 }
 
-                // =================================================
-                // FIND TRACEHER SERVICE
-                // =================================================
-
-                val service = gatt.getService(
-                    UUID.fromString(
-                        SERVICE_UUID
+                val service =
+                    gatt.getService(
+                        UUID.fromString(
+                            SERVICE_UUID
+                        )
                     )
-                )
 
                 if (service == null) {
 
@@ -724,10 +731,6 @@ class BleForegroundService : Service() {
                     TAG,
                     "TraceHer service found"
                 )
-
-                // =================================================
-                // FIND CHARACTERISTIC
-                // =================================================
 
                 val characteristic =
                     service.getCharacteristic(
@@ -768,10 +771,6 @@ class BleForegroundService : Service() {
                     return
                 }
 
-                // =================================================
-                // ENABLE LOCAL NOTIFICATION
-                // =================================================
-
                 val notificationEnabled =
                     gatt.setCharacteristicNotification(
                         characteristic,
@@ -782,10 +781,6 @@ class BleForegroundService : Service() {
                     TAG,
                     "Local notification enabled = $notificationEnabled"
                 )
-
-                // =================================================
-                // WRITE CCCD
-                // =================================================
 
                 val descriptor =
                     characteristic.getDescriptor(
@@ -810,7 +805,8 @@ class BleForegroundService : Service() {
                 )
 
                 descriptor.value =
-                    BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                    BluetoothGattDescriptor
+                        .ENABLE_NOTIFICATION_VALUE
 
                 val descriptorWriteStarted =
                     gatt.writeDescriptor(
@@ -869,7 +865,8 @@ class BleForegroundService : Service() {
 
             override fun onCharacteristicChanged(
                 gatt: BluetoothGatt,
-                characteristic: android.bluetooth.BluetoothGattCharacteristic,
+                characteristic:
+                android.bluetooth.BluetoothGattCharacteristic,
                 value: ByteArray
             ) {
 
@@ -880,7 +877,8 @@ class BleForegroundService : Service() {
                 )
 
                 val message =
-                    value.toString(Charsets.UTF_8)
+                    value
+                        .toString(Charsets.UTF_8)
                         .trim()
 
                 Log.e(
@@ -900,16 +898,509 @@ class BleForegroundService : Service() {
                         "!!!!!!!! SOS RECEIVED !!!!!!!!"
                     )
 
-                    /*
-                     * SMS will be added later.
-                     *
-                     * For this step we ONLY prove that
-                     * the native foreground service receives
-                     * the ESP32 SOS.
-                     */
+                    sendEmergencySMS()
                 }
             }
         }
+
+    // =========================================================
+    // SEND EMERGENCY SMS
+    // =========================================================
+
+    private fun sendEmergencySMS() {
+
+        Log.e(
+            TAG,
+            "Starting native emergency SMS..."
+        )
+
+        if (
+            ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.SEND_SMS
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+
+            Log.e(
+                TAG,
+                "SEND_SMS permission missing"
+            )
+
+            return
+        }
+
+        val prefs =
+            getSharedPreferences(
+                "FlutterSharedPreferences",
+                Context.MODE_PRIVATE
+            )
+
+        val contacts =
+            getEmergencyContacts(
+                prefs
+            )
+
+        if (contacts.isEmpty()) {
+
+            Log.e(
+                TAG,
+                "No emergency contacts found"
+            )
+
+            return
+        }
+
+        Log.e(
+            TAG,
+            "Emergency contacts found = ${contacts.size}"
+        )
+
+        val locationText =
+            getLocationText()
+
+        val message =
+            "TRACEHER SOS ALERT!\n" +
+                    "Emergency assistance is required.\n" +
+                    locationText
+
+        Log.e(
+            TAG,
+            "SOS SMS message prepared:"
+        )
+
+        Log.e(
+            TAG,
+            message
+        )
+
+        val smsManager =
+            getSystemService(
+                SmsManager::class.java
+            )
+
+        for (contact in contacts) {
+
+            val phoneNumber =
+                contact.phoneNumber
+
+            if (phoneNumber.isBlank()) {
+                continue
+            }
+
+            try {
+
+                Log.e(
+                    TAG,
+                    "Sending SOS SMS to: $phoneNumber"
+                )
+
+                val parts =
+                    smsManager.divideMessage(
+                        message
+                    )
+
+                smsManager.sendMultipartTextMessage(
+                    phoneNumber,
+                    null,
+                    parts,
+                    null,
+                    null
+                )
+
+                Log.e(
+                    TAG,
+                    "SOS SMS SENT to $phoneNumber"
+                )
+
+            } catch (e: Exception) {
+
+                Log.e(
+                    TAG,
+                    "SMS FAILED for $phoneNumber",
+                    e
+                )
+            }
+        }
+    }
+
+    // =========================================================
+    // NATIVE CONTACT MODEL
+    // =========================================================
+
+    private data class EmergencyContactNative(
+        val name: String,
+        val phoneNumber: String,
+        val relationship: String
+    )
+
+    // =========================================================
+    // READ EMERGENCY CONTACTS
+    // =========================================================
+
+    private fun getEmergencyContacts(
+        prefs: android.content.SharedPreferences
+    ): List<EmergencyContactNative> {
+
+        val possibleKeys =
+            listOf(
+                "flutter.$CONTACTS_KEY",
+                CONTACTS_KEY
+            )
+
+        var rawValue: String? = null
+
+        for (key in possibleKeys) {
+
+            val value =
+                prefs.getString(
+                    key,
+                    null
+                )
+
+            if (!value.isNullOrBlank()) {
+
+                rawValue = value
+
+                Log.e(
+                    TAG,
+                    "Found emergency contacts using key: $key"
+                )
+
+                break
+            }
+        }
+
+        if (rawValue == null) {
+
+            Log.e(
+                TAG,
+                "Emergency contacts SharedPreferences value not found"
+            )
+
+            return emptyList()
+        }
+
+        Log.e(
+            TAG,
+            "Raw emergency contacts data found"
+        )
+
+        Log.e(
+            TAG,
+            "Raw value length = ${rawValue.length}"
+        )
+
+        return try {
+
+            /*
+             * Flutter shared_preferences stores a List<String>
+             * using a special encoded representation.
+             *
+             * The stored value has this general structure:
+             *
+             * BASE64("This is the prefix for a list.")!<encoded data>
+             *
+             * Example prefix:
+             *
+             * VGhpcyBpcyB0aGUgcHJlZml4IGZvciBhIGxpc3Qu!
+             *
+             * Therefore the raw SharedPreferences value must NOT
+             * be passed directly to JSONArray().
+             */
+
+            val separatorIndex =
+                rawValue.indexOf("!")
+
+            if (separatorIndex <= 0) {
+
+                Log.e(
+                    TAG,
+                    "Flutter List encoding separator not found"
+                )
+
+                return emptyList()
+            }
+
+            val prefix =
+                rawValue.substring(
+                    0,
+                    separatorIndex
+                )
+
+            val encodedData =
+                rawValue.substring(
+                    separatorIndex + 1
+                )
+
+            Log.e(
+                TAG,
+                "Flutter list prefix detected"
+            )
+
+            Log.e(
+                TAG,
+                "Encoded list data length = ${encodedData.length}"
+            )
+
+            if (encodedData.isBlank()) {
+
+                Log.e(
+                    TAG,
+                    "Encoded contact list is empty"
+                )
+
+                return emptyList()
+            }
+
+            /*
+             * Decode the part after "!".
+             *
+             * Depending on the shared_preferences version,
+             * the payload may be Base64 encoded.
+             */
+
+            val decodedJson =
+                try {
+
+                    val decodedBytes =
+                        Base64.decode(
+                            encodedData,
+                            Base64.DEFAULT
+                        )
+
+                    String(
+                        decodedBytes,
+                        Charsets.UTF_8
+                    )
+
+                } catch (e: Exception) {
+
+                    Log.e(
+                        TAG,
+                        "Base64 decode failed. Trying raw payload.",
+                        e
+                    )
+
+                    encodedData
+                }
+
+            Log.e(
+                TAG,
+                "Decoded contact list:"
+            )
+
+            Log.e(
+                TAG,
+                decodedJson
+            )
+
+            val jsonArray =
+                JSONArray(
+                    decodedJson
+                )
+
+            val result =
+                mutableListOf<EmergencyContactNative>()
+
+            for (i in 0 until jsonArray.length()) {
+
+                val item =
+                    jsonArray.optString(
+                        i
+                    )
+
+                if (item.isBlank()) {
+                    continue
+                }
+
+                try {
+
+                    val contactJson =
+                        org.json.JSONObject(
+                            item
+                        )
+
+                    val name =
+                        contactJson.optString(
+                            "name",
+                            ""
+                        )
+
+                    val phoneNumber =
+                        contactJson.optString(
+                            "phoneNumber",
+                            ""
+                        )
+
+                    val relationship =
+                        contactJson.optString(
+                            "relationship",
+                            ""
+                        )
+
+                    if (
+                        phoneNumber.isNotBlank()
+                    ) {
+
+                        result.add(
+                            EmergencyContactNative(
+                                name = name,
+                                phoneNumber = phoneNumber,
+                                relationship = relationship
+                            )
+                        )
+
+                        Log.e(
+                            TAG,
+                            "Contact loaded: $name / $phoneNumber"
+                        )
+
+                    } else {
+
+                        Log.e(
+                            TAG,
+                            "Contact skipped because phone number is empty"
+                        )
+                    }
+
+                } catch (e: Exception) {
+
+                    Log.e(
+                        TAG,
+                        "Failed to decode individual contact",
+                        e
+                    )
+                }
+            }
+
+            Log.e(
+                TAG,
+                "Successfully decoded ${result.size} emergency contacts"
+            )
+
+            result
+
+        } catch (e: Exception) {
+
+            Log.e(
+                TAG,
+                "Failed to decode emergency contacts",
+                e
+            )
+
+            emptyList()
+        }
+    }
+
+    // =========================================================
+    // GET LOCATION
+    // =========================================================
+
+    private fun getLocationText(): String {
+
+        if (
+            ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            ) != PackageManager.PERMISSION_GRANTED &&
+            ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+
+            Log.e(
+                TAG,
+                "Location permission missing"
+            )
+
+            return "Location unavailable."
+        }
+
+        return try {
+
+            val locationManager =
+                getSystemService(
+                    Context.LOCATION_SERVICE
+                ) as LocationManager
+
+            var bestLocation: Location? =
+                null
+
+            val providers =
+                locationManager.getProviders(
+                    true
+                )
+
+            for (provider in providers) {
+
+                try {
+
+                    val location =
+                        locationManager.getLastKnownLocation(
+                            provider
+                        )
+
+                    if (location != null) {
+
+                        if (
+                            bestLocation == null ||
+                            location.time >
+                            bestLocation!!.time
+                        ) {
+
+                            bestLocation =
+                                location
+                        }
+                    }
+
+                } catch (e: SecurityException) {
+
+                    Log.e(
+                        TAG,
+                        "Unable to read location from $provider",
+                        e
+                    )
+                }
+            }
+
+            if (bestLocation == null) {
+
+                Log.e(
+                    TAG,
+                    "No last known location available"
+                )
+
+                return "Location unavailable."
+            }
+
+            val latitude =
+                bestLocation.latitude
+
+            val longitude =
+                bestLocation.longitude
+
+            val mapsLink =
+                "https://maps.google.com/?q=$latitude,$longitude"
+
+            Log.e(
+                TAG,
+                "Background location = $latitude, $longitude"
+            )
+
+            "Location:\n$mapsLink"
+
+        } catch (e: Exception) {
+
+            Log.e(
+                TAG,
+                "Location lookup failed",
+                e
+            )
+
+            "Location unavailable."
+        }
+    }
 
     // =========================================================
     // RECONNECT
@@ -988,11 +1479,12 @@ class BleForegroundService : Service() {
             Build.VERSION_CODES.O
         ) {
 
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "TraceHer Service",
-                NotificationManager.IMPORTANCE_LOW
-            )
+            val channel =
+                NotificationChannel(
+                    CHANNEL_ID,
+                    "TraceHer Service",
+                    NotificationManager.IMPORTANCE_LOW
+                )
 
             channel.description =
                 "Keeps TraceHer connected to the emergency device."
