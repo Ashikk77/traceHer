@@ -29,6 +29,9 @@ import android.util.Base64
 import android.util.Log
 import androidx.core.app.ActivityCompat
 import org.json.JSONArray
+import java.io.ByteArrayInputStream
+import java.io.ObjectInputStream
+import java.io.ObjectStreamClass
 import java.util.UUID
 
 class BleForegroundService : Service() {
@@ -1092,22 +1095,6 @@ class BleForegroundService : Service() {
 
         return try {
 
-            /*
-             * Flutter shared_preferences stores a List<String>
-             * using a special encoded representation.
-             *
-             * The stored value has this general structure:
-             *
-             * BASE64("This is the prefix for a list.")!<encoded data>
-             *
-             * Example prefix:
-             *
-             * VGhpcyBpcyB0aGUgcHJlZml4IGZvciBhIGxpc3Qu!
-             *
-             * Therefore the raw SharedPreferences value must NOT
-             * be passed directly to JSONArray().
-             */
-
             val separatorIndex =
                 rawValue.indexOf("!")
 
@@ -1120,12 +1107,6 @@ class BleForegroundService : Service() {
 
                 return emptyList()
             }
-
-            val prefix =
-                rawValue.substring(
-                    0,
-                    separatorIndex
-                )
 
             val encodedData =
                 rawValue.substring(
@@ -1152,14 +1133,11 @@ class BleForegroundService : Service() {
                 return emptyList()
             }
 
-            /*
-             * Decode the part after "!".
-             *
-             * Depending on the shared_preferences version,
-             * the payload may be Base64 encoded.
-             */
+            // =================================================
+            // DECODE FLUTTER LIST
+            // =================================================
 
-            val decodedJson =
+            val contactStrings =
                 try {
 
                     val decodedBytes =
@@ -1168,56 +1146,225 @@ class BleForegroundService : Service() {
                             Base64.DEFAULT
                         )
 
-                    String(
-                        decodedBytes,
-                        Charsets.UTF_8
+                    Log.e(
+                        TAG,
+                        "Base64 decoded successfully"
                     )
 
-                } catch (e: Exception) {
+                    /*
+                     * Older Flutter shared_preferences stores
+                     * List<String> using Java serialization.
+                     *
+                     * Only ArrayList and String are allowed here.
+                     */
+
+                    val inputStream =
+                        object : ObjectInputStream(
+                            ByteArrayInputStream(
+                                decodedBytes
+                            )
+                        ) {
+
+                            override fun resolveClass(
+                                desc: ObjectStreamClass
+                            ): Class<*> {
+
+                                return when (desc.name) {
+
+                                    "java.util.ArrayList" ->
+                                        ArrayList::class.java
+
+                                    "java.lang.String" ->
+                                        String::class.java
+
+                                    else ->
+                                        throw ClassNotFoundException(
+                                            "Blocked class: ${desc.name}"
+                                        )
+                                }
+                            }
+                        }
+
+                    inputStream.use {
+
+                        val decodedObject =
+                            it.readObject()
+
+                        when (decodedObject) {
+
+                            is ArrayList<*> -> {
+
+                                decodedObject.mapNotNull { item ->
+
+                                    if (
+                                        item is String
+                                    ) {
+                                        item
+                                    } else {
+                                        null
+                                    }
+                                }
+                            }
+
+                            is List<*> -> {
+
+                                decodedObject.mapNotNull { item ->
+
+                                    if (
+                                        item is String
+                                    ) {
+                                        item
+                                    } else {
+                                        null
+                                    }
+                                }
+                            }
+
+                            else -> {
+
+                                Log.e(
+                                    TAG,
+                                    "Unexpected Flutter list object: ${decodedObject.javaClass.name}"
+                                )
+
+                                emptyList()
+                            }
+                        }
+                    }
+
+                } catch (legacyException: Exception) {
 
                     Log.e(
                         TAG,
-                        "Base64 decode failed. Trying raw payload.",
-                        e
+                        "Legacy Java list decoding failed. Trying JSON format.",
+                        legacyException
                     )
 
-                    encodedData
+                    // =================================================
+                    // JSON FALLBACK
+                    // =================================================
+
+                    try {
+
+                        val decodedBytes =
+                            Base64.decode(
+                                encodedData,
+                                Base64.DEFAULT
+                            )
+
+                        val decodedText =
+                            String(
+                                decodedBytes,
+                                Charsets.UTF_8
+                            )
+
+                        Log.e(
+                            TAG,
+                            "Trying decoded JSON:"
+                        )
+
+                        Log.e(
+                            TAG,
+                            decodedText
+                        )
+
+                        val jsonArray =
+                            JSONArray(
+                                decodedText
+                            )
+
+                        val list =
+                            mutableListOf<String>()
+
+                        for (
+                        i in 0 until jsonArray.length()
+                        ) {
+
+                            val item =
+                                jsonArray.optString(
+                                    i,
+                                    ""
+                                )
+
+                            if (item.isNotBlank()) {
+                                list.add(item)
+                            }
+                        }
+
+                        list
+
+                    } catch (jsonException: Exception) {
+
+                        Log.e(
+                            TAG,
+                            "JSON decoding also failed. Trying raw payload.",
+                            jsonException
+                        )
+
+                        // =================================================
+                        // RAW JSON FALLBACK
+                        // =================================================
+
+                        try {
+
+                            val jsonArray =
+                                JSONArray(
+                                    encodedData
+                                )
+
+                            val list =
+                                mutableListOf<String>()
+
+                            for (
+                            i in 0 until jsonArray.length()
+                            ) {
+
+                                val item =
+                                    jsonArray.optString(
+                                        i,
+                                        ""
+                                    )
+
+                                if (item.isNotBlank()) {
+                                    list.add(item)
+                                }
+                            }
+
+                            list
+
+                        } catch (rawException: Exception) {
+
+                            Log.e(
+                                TAG,
+                                "All contact decoding methods failed.",
+                                rawException
+                            )
+
+                            emptyList()
+                        }
+                    }
                 }
 
             Log.e(
                 TAG,
-                "Decoded contact list:"
+                "Decoded contact string count = ${contactStrings.size}"
             )
-
-            Log.e(
-                TAG,
-                decodedJson
-            )
-
-            val jsonArray =
-                JSONArray(
-                    decodedJson
-                )
 
             val result =
                 mutableListOf<EmergencyContactNative>()
 
-            for (i in 0 until jsonArray.length()) {
-
-                val item =
-                    jsonArray.optString(
-                        i
-                    )
-
-                if (item.isBlank()) {
-                    continue
-                }
+            for (contactString in contactStrings) {
 
                 try {
 
+                    Log.e(
+                        TAG,
+                        "Contact JSON = $contactString"
+                    )
+
                     val contactJson =
                         org.json.JSONObject(
-                            item
+                            contactString
                         )
 
                     val name =
