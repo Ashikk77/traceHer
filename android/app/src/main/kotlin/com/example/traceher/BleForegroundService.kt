@@ -11,7 +11,6 @@ import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCallback
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
-import android.bluetooth.BluetoothGattService
 import android.bluetooth.BluetoothManager
 import android.bluetooth.le.BluetoothLeScanner
 import android.bluetooth.le.ScanCallback
@@ -67,6 +66,13 @@ class BleForegroundService : Service() {
             "traceher_last_location_time"
 
         private const val RECONNECT_DELAY = 3000L
+
+        private var instance: BleForegroundService? = null
+
+        @JvmStatic
+        fun isBleConnected(): Boolean {
+            return instance?.isConnected == true
+        }
     }
 
     private var bluetoothAdapter: BluetoothAdapter? = null
@@ -94,7 +100,12 @@ class BleForegroundService : Service() {
     override fun onCreate() {
         super.onCreate()
 
-        Log.e(TAG, "BleForegroundService created")
+        instance = this
+
+        Log.e(
+            TAG,
+            "BleForegroundService created"
+        )
 
         createNotificationChannel()
 
@@ -107,7 +118,9 @@ class BleForegroundService : Service() {
                 .setContentText(
                     "TraceHer is running in the background"
                 )
-                .setSmallIcon(android.R.drawable.ic_menu_info_details)
+                .setSmallIcon(
+                    android.R.drawable.ic_menu_info_details
+                )
                 .setOngoing(true)
                 .build()
 
@@ -116,16 +129,61 @@ class BleForegroundService : Service() {
             notification
         )
 
-        val bluetoothManager =
-            getSystemService(
-                Context.BLUETOOTH_SERVICE
-            ) as BluetoothManager
+        initializeBluetooth()
+    }
 
-        bluetoothAdapter =
-            bluetoothManager.adapter
+    private fun initializeBluetooth() {
 
-        scanner =
-            bluetoothAdapter?.bluetoothLeScanner
+        try {
+
+            val bluetoothManager =
+                getSystemService(
+                    Context.BLUETOOTH_SERVICE
+                ) as BluetoothManager
+
+            bluetoothAdapter =
+                bluetoothManager.adapter
+
+            scanner =
+                bluetoothAdapter?.bluetoothLeScanner
+
+            Log.e(
+                TAG,
+                "Bluetooth initialized"
+            )
+
+            Log.e(
+                TAG,
+                "Bluetooth adapter available = ${
+                    bluetoothAdapter != null
+                }"
+            )
+
+            Log.e(
+                TAG,
+                "Bluetooth enabled = ${
+                    bluetoothAdapter?.isEnabled
+                }"
+            )
+
+            Log.e(
+                TAG,
+                "BLE scanner available = ${
+                    scanner != null
+                }"
+            )
+
+        } catch (e: Exception) {
+
+            Log.e(
+                TAG,
+                "Bluetooth initialization failed",
+                e
+            )
+
+            bluetoothAdapter = null
+            scanner = null
+        }
     }
 
     override fun onStartCommand(
@@ -138,6 +196,8 @@ class BleForegroundService : Service() {
             TAG,
             "onStartCommand()"
         )
+
+        initializeBluetooth()
 
         val prefs =
             getSharedPreferences(
@@ -161,7 +221,9 @@ class BleForegroundService : Service() {
             !isScanning &&
             !savedAddress.isNullOrBlank()
         ) {
+
             startBleScan(savedAddress)
+
         } else {
 
             Log.e(
@@ -173,7 +235,9 @@ class BleForegroundService : Service() {
         return START_STICKY
     }
 
-    override fun onTaskRemoved(rootIntent: Intent?) {
+    override fun onTaskRemoved(
+        rootIntent: Intent?
+    ) {
 
         Log.e(
             TAG,
@@ -249,18 +313,56 @@ class BleForegroundService : Service() {
             return
         }
 
+        // IMPORTANT:
+        // Refresh Bluetooth scanner every time a scan starts.
+        // Android can return null from bluetoothLeScanner
+        // during service startup.
+
+        initializeBluetooth()
+
+        val adapter =
+            bluetoothAdapter
+
+        if (adapter == null) {
+
+            Log.e(
+                TAG,
+                "Bluetooth adapter unavailable"
+            )
+
+            scheduleReconnect()
+
+            return
+        }
+
+        if (!adapter.isEnabled) {
+
+            Log.e(
+                TAG,
+                "Bluetooth is disabled"
+            )
+
+            scheduleReconnect()
+
+            return
+        }
+
         val bluetoothScanner =
-            scanner
+            bluetoothAdapter?.bluetoothLeScanner
 
         if (bluetoothScanner == null) {
 
             Log.e(
                 TAG,
-                "Bluetooth scanner unavailable"
+                "Bluetooth scanner unavailable after refresh"
             )
+
+            scheduleReconnect()
 
             return
         }
+
+        scanner = bluetoothScanner
 
         Log.e(
             TAG,
@@ -281,16 +383,31 @@ class BleForegroundService : Service() {
 
         isScanning = true
 
-        bluetoothScanner.startScan(
-            listOf(filter),
-            settings,
-            scanCallback
-        )
+        try {
 
-        Log.e(
-            TAG,
-            "BLE Scan Started"
-        )
+            bluetoothScanner.startScan(
+                listOf(filter),
+                settings,
+                scanCallback
+            )
+
+            Log.e(
+                TAG,
+                "BLE Scan Started"
+            )
+
+        } catch (e: Exception) {
+
+            isScanning = false
+
+            Log.e(
+                TAG,
+                "BLE scan start failed",
+                e
+            )
+
+            scheduleReconnect()
+        }
     }
 
     private fun stopBleScan() {
@@ -358,6 +475,8 @@ class BleForegroundService : Service() {
                     TAG,
                     "BLE scan failed. Error=$errorCode"
                 )
+
+                scheduleReconnect()
             }
         }
 
@@ -464,6 +583,7 @@ class BleForegroundService : Service() {
                     try {
                         gatt.close()
                     } catch (e: Exception) {
+
                         Log.e(
                             TAG,
                             "GATT close failed",
@@ -1089,6 +1209,7 @@ class BleForegroundService : Service() {
         try {
             bluetoothGatt?.close()
         } catch (e: Exception) {
+
             Log.e(
                 TAG,
                 "GATT close failed during destroy",
@@ -1099,6 +1220,8 @@ class BleForegroundService : Service() {
         bluetoothGatt = null
         isConnected = false
         notificationsReady = false
+
+        instance = null
 
         super.onDestroy()
     }

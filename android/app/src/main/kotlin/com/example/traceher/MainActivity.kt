@@ -3,7 +3,6 @@ package com.example.traceher
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.telephony.SmsManager
 import androidx.core.app.ActivityCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -15,12 +14,16 @@ class MainActivity : FlutterActivity() {
     private val CHANNEL_V2 = "traceher/sms_v2"
     private val SERVICE_CHANNEL = "traceher/service"
 
-    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+    override fun configureFlutterEngine(
+        flutterEngine: FlutterEngine
+    ) {
+
         super.configureFlutterEngine(flutterEngine)
 
         // ==========================
         // FOREGROUND SERVICE CHANNEL
         // ==========================
+
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             SERVICE_CHANNEL
@@ -28,12 +31,29 @@ class MainActivity : FlutterActivity() {
 
             when (call.method) {
 
+                "isBleConnected" -> {
+
+                    val connected =
+                        BleForegroundService.isBleConnected()
+
+                    android.util.Log.d(
+                        "TraceHerService",
+                        "BLE connection status requested: $connected"
+                    )
+
+                    result.success(connected)
+                }
+
                 "startService" -> {
 
                     val intent =
-                        Intent(this, BleForegroundService::class.java)
+                        Intent(
+                            this,
+                            BleForegroundService::class.java
+                        )
 
-                    if (android.os.Build.VERSION.SDK_INT >=
+                    if (
+                        android.os.Build.VERSION.SDK_INT >=
                         android.os.Build.VERSION_CODES.O
                     ) {
                         startForegroundService(intent)
@@ -47,9 +67,13 @@ class MainActivity : FlutterActivity() {
                 "startBleMonitoring" -> {
 
                     val intent =
-                        Intent(this, BleForegroundService::class.java)
+                        Intent(
+                            this,
+                            BleForegroundService::class.java
+                        )
 
-                    if (android.os.Build.VERSION.SDK_INT >=
+                    if (
+                        android.os.Build.VERSION.SDK_INT >=
                         android.os.Build.VERSION_CODES.O
                     ) {
                         startForegroundService(intent)
@@ -72,6 +96,7 @@ class MainActivity : FlutterActivity() {
         // ==========================
         // OLD SMS CHANNEL
         // ==========================
+
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             CHANNEL
@@ -79,10 +104,16 @@ class MainActivity : FlutterActivity() {
 
             if (call.method == "sendSMS") {
 
-                val phone = call.argument<String>("phone")
-                val message = call.argument<String>("message")
+                val phone =
+                    call.argument<String>("phone")
 
-                if (phone == null || message == null) {
+                val message =
+                    call.argument<String>("message")
+
+                if (
+                    phone == null ||
+                    message == null
+                ) {
 
                     result.error(
                         "INVALID",
@@ -93,44 +124,22 @@ class MainActivity : FlutterActivity() {
                     return@setMethodCallHandler
                 }
 
-                if (ActivityCompat.checkSelfPermission(
+                val success =
+                    SmsSender.sendSMS(
                         this,
-                        Manifest.permission.SEND_SMS
-                    ) != PackageManager.PERMISSION_GRANTED
-                ) {
-
-                    result.error(
-                        "PERMISSION",
-                        "SEND_SMS permission denied",
-                        null
-                    )
-
-                    return@setMethodCallHandler
-                }
-
-                try {
-
-                    val smsManager =
-                        getSystemService(SmsManager::class.java)
-
-                    val parts =
-                        smsManager.divideMessage(message)
-
-                    smsManager.sendMultipartTextMessage(
                         phone,
-                        null,
-                        parts,
-                        null,
-                        null
+                        message
                     )
+
+                if (success) {
 
                     result.success("SMS Sent")
 
-                } catch (e: Exception) {
+                } else {
 
                     result.error(
                         "FAILED",
-                        e.message,
+                        "SMS could not be sent",
                         null
                     )
                 }
@@ -138,14 +147,13 @@ class MainActivity : FlutterActivity() {
             } else {
 
                 result.notImplemented()
-
             }
-
         }
 
         // ==========================
         // SMS V2 CHANNEL
         // ==========================
+
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             CHANNEL_V2
@@ -153,10 +161,16 @@ class MainActivity : FlutterActivity() {
 
             if (call.method == "sendSMSV2") {
 
-                val phone = call.argument<String>("phone")
-                val message = call.argument<String>("message")
+                val phone =
+                    call.argument<String>("phone")
 
-                if (phone == null || message == null) {
+                val message =
+                    call.argument<String>("message")
+
+                if (
+                    phone == null ||
+                    message == null
+                ) {
 
                     result.error(
                         "INVALID",
@@ -167,31 +181,24 @@ class MainActivity : FlutterActivity() {
                     return@setMethodCallHandler
                 }
 
-                try {
+                android.util.Log.d(
+                    "TraceHerV2",
+                    "Sending SMS to: $phone"
+                )
 
-                    val smsManager =
-                        getSystemService(SmsManager::class.java)
+                android.util.Log.d(
+                    "TraceHerV2",
+                    "Message: $message"
+                )
 
-                    android.util.Log.d(
-                        "TraceHerV2",
-                        "Sending SMS to: $phone"
-                    )
-
-                    android.util.Log.d(
-                        "TraceHerV2",
-                        "Message: $message"
-                    )
-
-                    val parts =
-                        smsManager.divideMessage(message)
-
-                    smsManager.sendMultipartTextMessage(
+                val success =
+                    SmsSender.sendSMS(
+                        this,
                         phone,
-                        null,
-                        parts,
-                        null,
-                        null
+                        message
                     )
+
+                if (success) {
 
                     android.util.Log.d(
                         "TraceHerV2",
@@ -200,30 +207,24 @@ class MainActivity : FlutterActivity() {
 
                     result.success("V2 SMS Sent")
 
-                } catch (e: Exception) {
+                } else {
 
                     android.util.Log.e(
                         "TraceHerV2",
-                        "SMS Failed",
-                        e
+                        "SMS Failed"
                     )
 
                     result.error(
                         "FAILED",
-                        e.message,
+                        "SMS could not be sent",
                         null
                     )
-
                 }
 
             } else {
 
                 result.notImplemented()
-
             }
-
         }
-
     }
-
 }
