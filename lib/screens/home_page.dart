@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
@@ -36,6 +38,12 @@ class _MyHomePageState extends State<MyHomePage>
   // Actual BLE status from native foreground service
   bool deviceConnected = false;
 
+  // Prevent multiple BLE status requests at the same time
+  bool _checkingBleStatus = false;
+
+  // Timer for live BLE status updates
+  Timer? _bleStatusTimer;
+
   // Correct native service channel
   static const MethodChannel serviceChannel =
   MethodChannel('traceher/service');
@@ -47,11 +55,19 @@ class _MyHomePageState extends State<MyHomePage>
     WidgetsBinding.instance.addObserver(this);
 
     _initialize();
+
+    // Start live BLE status monitoring
+    _startBleStatusMonitoring();
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+
+    // Stop live BLE status monitoring
+    _bleStatusTimer?.cancel();
+    _bleStatusTimer = null;
+
     super.dispose();
   }
 
@@ -62,14 +78,55 @@ class _MyHomePageState extends State<MyHomePage>
   @override
   void didChangeAppLifecycleState(
       AppLifecycleState state) {
-
     if (state == AppLifecycleState.resumed) {
       debugPrint(
         "App resumed - checking native BLE status",
       );
 
       checkNativeBleConnection();
+
+      // Restart live BLE monitoring
+      _startBleStatusMonitoring();
+    } else if (
+    state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.detached) {
+
+      // Stop polling while dashboard is not active
+      _bleStatusTimer?.cancel();
+      _bleStatusTimer = null;
+
+      debugPrint(
+        "App not active - stopped live BLE status monitoring",
+      );
     }
+  }
+
+  // ==========================================================
+  // LIVE BLE STATUS MONITORING
+  // ==========================================================
+
+  void _startBleStatusMonitoring() {
+    // Avoid creating multiple timers
+    if (_bleStatusTimer != null &&
+        _bleStatusTimer!.isActive) {
+      return;
+    }
+
+    debugPrint(
+      "Starting live BLE status monitoring",
+    );
+
+    // Check immediately
+    checkNativeBleConnection();
+
+    // Then check every 1 second
+    _bleStatusTimer = Timer.periodic(
+      const Duration(seconds: 1),
+          (_) {
+        checkNativeBleConnection();
+      },
+    );
   }
 
   // ==========================================================
@@ -77,7 +134,6 @@ class _MyHomePageState extends State<MyHomePage>
   // ==========================================================
 
   Future<void> _initialize() async {
-
     // Start reconnect in background
     BleManager.instance.loadSavedDevice();
 
@@ -94,7 +150,6 @@ class _MyHomePageState extends State<MyHomePage>
     Future.delayed(
       const Duration(seconds: 1),
           () {
-
         if (!BleManager.instance.isConnected) {
           BleManager.instance.loadSavedDevice();
         }
@@ -107,9 +162,7 @@ class _MyHomePageState extends State<MyHomePage>
     // BLE message received by Flutter BLE manager
     BleManager.instance.onMessageReceived =
         (message) async {
-
       if (message.trim() == "SOS") {
-
         debugPrint(
           "HomePage received SOS",
         );
@@ -121,7 +174,6 @@ class _MyHomePageState extends State<MyHomePage>
     // Flutter BLE connection changed
     BleManager.instance.onConnectionChanged =
         () {
-
       if (!mounted) return;
 
       // Do not directly trust the Flutter BLE state.
@@ -136,36 +188,53 @@ class _MyHomePageState extends State<MyHomePage>
   // ==========================================================
 
   Future<void> checkNativeBleConnection() async {
+    // Prevent overlapping calls if the previous check
+    // has not completed yet.
+    if (_checkingBleStatus) {
+      return;
+    }
+
+    _checkingBleStatus = true;
 
     try {
-
       final bool connected =
           await serviceChannel.invokeMethod<bool>(
             'isBleConnected',
           ) ??
               false;
 
-      debugPrint(
-        "Native foreground service BLE status: $connected",
-      );
-
       if (!mounted) return;
 
-      setState(() {
-        deviceConnected = connected;
-      });
+      // Only update UI and print a log when the
+      // connection status actually changes.
+      if (deviceConnected != connected) {
+        setState(() {
+          deviceConnected = connected;
+        });
 
+        debugPrint(
+          "Dashboard BLE status changed: "
+              "${connected ? "Connected" : "Disconnected"}",
+        );
+      }
     } catch (e) {
-
       debugPrint(
         "Error checking native BLE connection: $e",
       );
 
       if (!mounted) return;
 
-      setState(() {
-        deviceConnected = false;
-      });
+      if (deviceConnected) {
+        setState(() {
+          deviceConnected = false;
+        });
+
+        debugPrint(
+          "Dashboard BLE status changed: Disconnected",
+        );
+      }
+    } finally {
+      _checkingBleStatus = false;
     }
   }
 
@@ -174,7 +243,6 @@ class _MyHomePageState extends State<MyHomePage>
   // ==========================================================
 
   Future<void> loadProfile() async {
-
     final profile =
     await userService.getProfile();
 
@@ -190,7 +258,6 @@ class _MyHomePageState extends State<MyHomePage>
   // ==========================================================
 
   Future<void> loadContacts() async {
-
     final contacts =
     await contactService.getContacts();
 
@@ -206,7 +273,6 @@ class _MyHomePageState extends State<MyHomePage>
   // ==========================================================
 
   Future<void> getCurrentLocation() async {
-
     setState(() {
       loadingLocation = true;
     });
@@ -227,7 +293,6 @@ class _MyHomePageState extends State<MyHomePage>
   // ==========================================================
 
   Future<void> testSOS() async {
-
     debugPrint("STEP 1");
 
     // Get cached GPS location
@@ -241,14 +306,11 @@ class _MyHomePageState extends State<MyHomePage>
     String mapLink;
 
     if (position != null) {
-
       mapLink =
       "https://maps.google.com/?q="
           "${position.latitude},"
           "${position.longitude}";
-
     } else {
-
       mapLink =
       "Location unavailable";
     }
@@ -258,7 +320,6 @@ class _MyHomePageState extends State<MyHomePage>
     await contactService.getContacts();
 
     if (contacts.isEmpty) {
-
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -275,7 +336,6 @@ class _MyHomePageState extends State<MyHomePage>
 
     // Send SMS to every contact
     for (final contact in contacts) {
-
       debugPrint(
         "Sending SMS to: "
             "${contact.phoneNumber}",
@@ -317,19 +377,15 @@ class _MyHomePageState extends State<MyHomePage>
       String value,
       Color color,
       ) {
-
     return Expanded(
       child: Column(
         children: [
-
           Icon(
             icon,
             color: color,
             size: 32,
           ),
-
           const SizedBox(height: 10),
-
           Text(
             value,
             style: const TextStyle(
@@ -338,7 +394,6 @@ class _MyHomePageState extends State<MyHomePage>
               fontSize: 18,
             ),
           ),
-
           Text(
             title,
             style: const TextStyle(
@@ -359,16 +414,12 @@ class _MyHomePageState extends State<MyHomePage>
       String text,
       VoidCallback onTap,
       ) {
-
     return SizedBox(
       width: double.infinity,
       height: 55,
-
       child: ElevatedButton.icon(
         icon: Icon(icon),
-
         label: Text(text),
-
         onPressed: onTap,
       ),
     );
@@ -380,7 +431,6 @@ class _MyHomePageState extends State<MyHomePage>
 
   @override
   Widget build(BuildContext context) {
-
     return Scaffold(
       backgroundColor:
       Colors.grey.shade100,
@@ -391,20 +441,15 @@ class _MyHomePageState extends State<MyHomePage>
 
       appBar: AppBar(
         elevation: 0,
-
         backgroundColor:
         Colors.green,
-
         foregroundColor:
         Colors.white,
-
         title: const Text(
           "traceHer",
-
           style: TextStyle(
             fontWeight:
             FontWeight.bold,
-
             fontSize: 24,
           ),
         ),
@@ -422,7 +467,6 @@ class _MyHomePageState extends State<MyHomePage>
           const EdgeInsets.all(20),
 
           children: [
-
             // ==================================================
             // GREETING
             // ==================================================
@@ -430,7 +474,6 @@ class _MyHomePageState extends State<MyHomePage>
             Text(
               "Hi, "
                   "${userProfile?.name ?? "User"} 👋",
-
               style: const TextStyle(
                 fontSize: 18,
                 color: Colors.grey,
@@ -441,7 +484,6 @@ class _MyHomePageState extends State<MyHomePage>
 
             const Text(
               "Your Safety Dashboard",
-
               style: TextStyle(
                 fontSize: 30,
                 fontWeight:
@@ -457,7 +499,6 @@ class _MyHomePageState extends State<MyHomePage>
 
             Card(
               elevation: 4,
-
               shape:
               RoundedRectangleBorder(
                 borderRadius:
@@ -470,17 +511,14 @@ class _MyHomePageState extends State<MyHomePage>
 
                 child: Column(
                   children: [
-
                     Row(
                       children: [
-
                         // --------------------------------------
                         // BLUETOOTH ICON
                         // --------------------------------------
 
                         CircleAvatar(
                           radius: 22,
-
                           backgroundColor:
                           deviceConnected
                               ? Colors.green
@@ -510,10 +548,8 @@ class _MyHomePageState extends State<MyHomePage>
                             CrossAxisAlignment.start,
 
                             children: [
-
                               const Text(
                                 "Device Status",
-
                                 style:
                                 TextStyle(
                                   color:
@@ -576,7 +612,6 @@ class _MyHomePageState extends State<MyHomePage>
 
                     Row(
                       children: [
-
                         statusTile(
                           Icons.shield,
                           "SOS",
@@ -612,7 +647,6 @@ class _MyHomePageState extends State<MyHomePage>
 
             Card(
               elevation: 4,
-
               shape:
               RoundedRectangleBorder(
                 borderRadius:
@@ -628,10 +662,8 @@ class _MyHomePageState extends State<MyHomePage>
                   CrossAxisAlignment.start,
 
                   children: [
-
                     const Text(
                       "📍 Current Location",
-
                       style: TextStyle(
                         fontSize: 18,
                         fontWeight:
@@ -646,26 +678,22 @@ class _MyHomePageState extends State<MyHomePage>
                     // ------------------------------------------
 
                     if (loadingLocation)
-
                       const Center(
                         child:
                         CircularProgressIndicator(),
                       )
-
                     else if (
                     currentPosition == null
                     )
-
                       const Column(
                         crossAxisAlignment:
                         CrossAxisAlignment.start,
 
                         children: [
-
                           Text(
                             "Location not available",
-
-                            style: TextStyle(
+                            style:
+                            TextStyle(
                               fontWeight:
                               FontWeight.bold,
                             ),
@@ -679,15 +707,12 @@ class _MyHomePageState extends State<MyHomePage>
                           ),
                         ],
                       )
-
                     else
-
                       Column(
                         crossAxisAlignment:
                         CrossAxisAlignment.start,
 
                         children: [
-
                           Text(
                             "Latitude : "
                                 "${currentPosition!.latitude}",
@@ -743,7 +768,6 @@ class _MyHomePageState extends State<MyHomePage>
 
             const Text(
               "Quick Actions",
-
               style: TextStyle(
                 fontWeight:
                 FontWeight.bold,
@@ -760,12 +784,9 @@ class _MyHomePageState extends State<MyHomePage>
             actionButton(
               Icons.contacts,
               "Emergency Contacts",
-
                   () async {
-
                 await Navigator.push(
                   context,
-
                   MaterialPageRoute(
                     builder: (_) =>
                     const EmergencyContactsPage(),
@@ -784,14 +805,12 @@ class _MyHomePageState extends State<MyHomePage>
 
             // ==================================================
             // DEVICE SETTINGS
-            // ==================================================
+            // ==========================================================
 
             actionButton(
               Icons.settings,
               "Device Settings",
-
                   () {
-
                 ScaffoldMessenger.of(
                   context,
                 ).showSnackBar(
