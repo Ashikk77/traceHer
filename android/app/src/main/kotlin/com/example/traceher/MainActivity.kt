@@ -31,6 +31,10 @@ class MainActivity : FlutterActivity() {
 
             when (call.method) {
 
+                // ==========================
+                // CHECK NATIVE BLE STATUS
+                // ==========================
+
                 "isBleConnected" -> {
 
                     val connected =
@@ -44,6 +48,126 @@ class MainActivity : FlutterActivity() {
                     result.success(connected)
                 }
 
+                // ==========================
+                // SAVE BLE DEVICE
+                // ==========================
+
+                "saveBleDevice" -> {
+
+                    val deviceId =
+                        call.argument<String>("deviceId")
+
+                    if (deviceId.isNullOrBlank()) {
+
+                        android.util.Log.e(
+                            "TraceHerService",
+                            "Received empty BLE device address"
+                        )
+
+                        result.error(
+                            "INVALID_DEVICE",
+                            "BLE device address is null or empty",
+                            null
+                        )
+
+                        return@setMethodCallHandler
+                    }
+
+                    android.util.Log.e(
+                        "TraceHerService",
+                        "========================================"
+                    )
+
+                    android.util.Log.e(
+                        "TraceHerService",
+                        "BLE DEVICE RECEIVED FROM FLUTTER"
+                    )
+
+                    android.util.Log.e(
+                        "TraceHerService",
+                        "Device address = $deviceId"
+                    )
+
+                    android.util.Log.e(
+                        "TraceHerService",
+                        "========================================"
+                    )
+
+                    // ==========================================
+                    // SAVE DEVICE ADDRESS FOR NATIVE SERVICE
+                    // ==========================================
+
+                    val prefs =
+                        getSharedPreferences(
+                            "TraceHerNativePrefs",
+                            MODE_PRIVATE
+                        )
+
+                    prefs.edit()
+                        .putString(
+                            "native_saved_ble_device",
+                            deviceId
+                        )
+                        .apply()
+
+                    android.util.Log.e(
+                        "TraceHerService",
+                        "Native BLE device address saved = $deviceId"
+                    )
+
+                    // ==========================================
+                    // START BLE FOREGROUND SERVICE AGAIN
+                    //
+                    // This makes onStartCommand() run again.
+                    // The service will now read the newly saved
+                    // native BLE address and connect to TraceHer.
+                    // ==========================================
+
+                    try {
+
+                        val intent =
+                            Intent(
+                                this,
+                                BleForegroundService::class.java
+                            )
+
+                        if (
+                            android.os.Build.VERSION.SDK_INT >=
+                            android.os.Build.VERSION_CODES.O
+                        ) {
+
+                            startForegroundService(
+                                intent
+                            )
+
+                        } else {
+
+                            startService(
+                                intent
+                            )
+                        }
+
+                        android.util.Log.e(
+                            "TraceHerService",
+                            "BLE foreground service triggered after saving device"
+                        )
+
+                    } catch (e: Exception) {
+
+                        android.util.Log.e(
+                            "TraceHerService",
+                            "Failed to restart BLE foreground service",
+                            e
+                        )
+                    }
+
+                    result.success(true)
+                }
+
+                // ==========================
+                // START SERVICE
+                // ==========================
+
                 "startService" -> {
 
                     val intent =
@@ -56,13 +180,26 @@ class MainActivity : FlutterActivity() {
                         android.os.Build.VERSION.SDK_INT >=
                         android.os.Build.VERSION_CODES.O
                     ) {
-                        startForegroundService(intent)
+
+                        startForegroundService(
+                            intent
+                        )
+
                     } else {
-                        startService(intent)
+
+                        startService(
+                            intent
+                        )
                     }
 
-                    result.success("Service Started")
+                    result.success(
+                        "Service Started"
+                    )
                 }
+
+                // ==========================
+                // START BLE MONITORING
+                // ==========================
 
                 "startBleMonitoring" -> {
 
@@ -76,9 +213,16 @@ class MainActivity : FlutterActivity() {
                         android.os.Build.VERSION.SDK_INT >=
                         android.os.Build.VERSION_CODES.O
                     ) {
-                        startForegroundService(intent)
+
+                        startForegroundService(
+                            intent
+                        )
+
                     } else {
-                        startService(intent)
+
+                        startService(
+                            intent
+                        )
                     }
 
                     android.util.Log.d(
@@ -86,7 +230,9 @@ class MainActivity : FlutterActivity() {
                         "Native BLE monitoring requested from Flutter"
                     )
 
-                    result.success("BLE Monitoring Started")
+                    result.success(
+                        "BLE Monitoring Started"
+                    )
                 }
 
                 else -> result.notImplemented()
@@ -133,7 +279,9 @@ class MainActivity : FlutterActivity() {
 
                 if (success) {
 
-                    result.success("SMS Sent")
+                    result.success(
+                        "SMS Sent"
+                    )
 
                 } else {
 
@@ -205,7 +353,9 @@ class MainActivity : FlutterActivity() {
                         "SMS Sent Successfully"
                     )
 
-                    result.success("V2 SMS Sent")
+                    result.success(
+                        "V2 SMS Sent"
+                    )
 
                 } else {
 

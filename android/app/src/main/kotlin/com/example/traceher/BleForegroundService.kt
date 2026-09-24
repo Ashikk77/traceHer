@@ -425,19 +425,34 @@ class BleForegroundService : Service() {
 
         val prefs =
             getSharedPreferences(
-                "FlutterSharedPreferences",
+                "TraceHerNativePrefs",
                 Context.MODE_PRIVATE
             )
 
         val savedAddress =
             prefs.getString(
-                "flutter.$SAVED_DEVICE_KEY",
+                "native_saved_ble_device",
                 null
             )
 
         Log.e(
             TAG,
-            "Saved BLE device = $savedAddress"
+            "Native service reading native BLE address"
+        )
+
+        Log.e(
+            TAG,
+            "Preference file = TraceHerNativePrefs"
+        )
+
+        Log.e(
+            TAG,
+            "Preference key = native_saved_ble_device"
+        )
+
+        Log.e(
+            TAG,
+            "Native saved BLE address = $savedAddress"
         )
 
         return savedAddress
@@ -470,14 +485,6 @@ class BleForegroundService : Service() {
             TAG,
             "========================================"
         )
-
-        /*
-         * Do NOT stop the BLE service when the Flutter
-         * application is removed from Recents.
-         *
-         * If BLE is disconnected, immediately try to
-         * reconnect using the saved Bluetooth address.
-         */
 
         if (!isConnected &&
             !connectionInProgress &&
@@ -1316,7 +1323,6 @@ class BleForegroundService : Service() {
                     Log.e(
                         TAG,
                         "========================================"
-
                     )
 
                 } else {

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
+
 import '../services/contact_service.dart';
 import '../services/location_service.dart';
 import 'emergency_contacts_page.dart';
@@ -18,7 +20,8 @@ class MyHomePage extends StatefulWidget {
   State<MyHomePage> createState() => _MyHomePageState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
+class _MyHomePageState extends State<MyHomePage>
+    with WidgetsBindingObserver {
   final LocationService locationService = LocationService();
   final SmsService smsService = SmsService();
   final ContactService contactService = ContactService();
@@ -30,12 +33,48 @@ class _MyHomePageState extends State<MyHomePage> {
   Position? currentPosition;
   bool loadingLocation = false;
 
+  // Actual BLE status from native foreground service
+  bool deviceConnected = false;
+
+  // Correct native service channel
+  static const MethodChannel serviceChannel =
+  MethodChannel('traceher/service');
+
   @override
   void initState() {
     super.initState();
 
+    WidgetsBinding.instance.addObserver(this);
+
     _initialize();
   }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  // ==========================================================
+  // APP LIFECYCLE
+  // ==========================================================
+
+  @override
+  void didChangeAppLifecycleState(
+      AppLifecycleState state) {
+
+    if (state == AppLifecycleState.resumed) {
+      debugPrint(
+        "App resumed - checking native BLE status",
+      );
+
+      checkNativeBleConnection();
+    }
+  }
+
+  // ==========================================================
+  // INITIALIZE
+  // ==========================================================
 
   Future<void> _initialize() async {
 
@@ -49,31 +88,95 @@ class _MyHomePageState extends State<MyHomePage> {
     loadContacts();
     getCurrentLocation();
 
+    // Check actual BLE status from native service
+    await checkNativeBleConnection();
+
     Future.delayed(
       const Duration(seconds: 1),
           () {
+
         if (!BleManager.instance.isConnected) {
           BleManager.instance.loadSavedDevice();
         }
+
+        // Check native status again after reconnect attempt
+        checkNativeBleConnection();
       },
     );
 
-    BleManager.instance.onMessageReceived = (message) async {
+    // BLE message received by Flutter BLE manager
+    BleManager.instance.onMessageReceived =
+        (message) async {
+
       if (message.trim() == "SOS") {
-        debugPrint("HomePage received SOS");
+
+        debugPrint(
+          "HomePage received SOS",
+        );
+
         await testSOS();
       }
     };
 
-    BleManager.instance.onConnectionChanged = () {
+    // Flutter BLE connection changed
+    BleManager.instance.onConnectionChanged =
+        () {
+
       if (!mounted) return;
-      setState(() {});
+
+      // Do not directly trust the Flutter BLE state.
+      // Ask the native foreground service for the
+      // actual BLE connection status.
+      checkNativeBleConnection();
     };
   }
 
+  // ==========================================================
+  // CHECK NATIVE BLE CONNECTION
+  // ==========================================================
+
+  Future<void> checkNativeBleConnection() async {
+
+    try {
+
+      final bool connected =
+          await serviceChannel.invokeMethod<bool>(
+            'isBleConnected',
+          ) ??
+              false;
+
+      debugPrint(
+        "Native foreground service BLE status: $connected",
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        deviceConnected = connected;
+      });
+
+    } catch (e) {
+
+      debugPrint(
+        "Error checking native BLE connection: $e",
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        deviceConnected = false;
+      });
+    }
+  }
+
+  // ==========================================================
+  // LOAD PROFILE
+  // ==========================================================
 
   Future<void> loadProfile() async {
-    final profile = await userService.getProfile();
+
+    final profile =
+    await userService.getProfile();
 
     if (!mounted) return;
 
@@ -82,14 +185,25 @@ class _MyHomePageState extends State<MyHomePage> {
     });
   }
 
+  // ==========================================================
+  // LOAD CONTACTS
+  // ==========================================================
+
   Future<void> loadContacts() async {
-    final contacts = await contactService.getContacts();
+
+    final contacts =
+    await contactService.getContacts();
+
     if (!mounted) return;
 
     setState(() {
       contactCount = contacts.length;
     });
   }
+
+  // ==========================================================
+  // GET CURRENT LOCATION
+  // ==========================================================
 
   Future<void> getCurrentLocation() async {
 
@@ -106,43 +220,66 @@ class _MyHomePageState extends State<MyHomePage> {
       currentPosition = position;
       loadingLocation = false;
     });
-
   }
 
+  // ==========================================================
+  // TEST SOS
+  // ==========================================================
+
   Future<void> testSOS() async {
+
     debugPrint("STEP 1");
 
-    // Get fresh GPS location
-    Position? position = LocationManager.instance.lastPosition;
+    // Get cached GPS location
+    Position? position =
+        LocationManager.instance.lastPosition;
 
-    debugPrint("Cached Location: $position");
+    debugPrint(
+      "Cached Location: $position",
+    );
 
     String mapLink;
 
     if (position != null) {
+
       mapLink =
-      "https://maps.google.com/?q=${position.latitude},${position.longitude}";
+      "https://maps.google.com/?q="
+          "${position.latitude},"
+          "${position.longitude}";
+
     } else {
-      mapLink = "Location unavailable";
+
+      mapLink =
+      "Location unavailable";
     }
 
     // Load saved contacts
-    final contacts = await contactService.getContacts();
+    final contacts =
+    await contactService.getContacts();
 
     if (contacts.isEmpty) {
+
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text("No emergency contacts saved."),
+          content:
+          Text(
+            "No emergency contacts saved.",
+          ),
         ),
       );
+
       return;
     }
 
     // Send SMS to every contact
     for (final contact in contacts) {
-      debugPrint("Sending SMS to: ${contact.phoneNumber}");
+
+      debugPrint(
+        "Sending SMS to: "
+            "${contact.phoneNumber}",
+      );
 
       await smsService.sendSMS(
         phone: contact.phoneNumber,
@@ -160,114 +297,248 @@ class _MyHomePageState extends State<MyHomePage> {
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text("SOS Test Sent Successfully"),
+        content:
+        Text(
+          "SOS Test Sent Successfully",
+        ),
       ),
     );
 
     debugPrint("STEP 3");
   }
 
+  // ==========================================================
+  // STATUS TILE
+  // ==========================================================
 
-  Widget statusTile(IconData icon, String title, String value, Color color) {
+  Widget statusTile(
+      IconData icon,
+      String title,
+      String value,
+      Color color,
+      ) {
+
     return Expanded(
       child: Column(
         children: [
-          Icon(icon, color: color, size: 32),
+
+          Icon(
+            icon,
+            color: color,
+            size: 32,
+          ),
+
           const SizedBox(height: 10),
+
           Text(
             value,
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+            style: const TextStyle(
+              fontWeight:
+              FontWeight.bold,
+              fontSize: 18,
+            ),
           ),
-          Text(title, style: const TextStyle(color: Colors.grey)),
+
+          Text(
+            title,
+            style: const TextStyle(
+              color: Colors.grey,
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Widget actionButton(IconData icon, String text, VoidCallback onTap) {
+  // ==========================================================
+  // ACTION BUTTON
+  // ==========================================================
+
+  Widget actionButton(
+      IconData icon,
+      String text,
+      VoidCallback onTap,
+      ) {
+
     return SizedBox(
       width: double.infinity,
       height: 55,
+
       child: ElevatedButton.icon(
         icon: Icon(icon),
+
         label: Text(text),
+
         onPressed: onTap,
       ),
     );
   }
 
+  // ==========================================================
+  // BUILD
+  // ==========================================================
+
   @override
   Widget build(BuildContext context) {
+
     return Scaffold(
-      backgroundColor: Colors.grey.shade100,
+      backgroundColor:
+      Colors.grey.shade100,
+
+      // ======================================================
+      // APP BAR
+      // ======================================================
+
       appBar: AppBar(
         elevation: 0,
-        backgroundColor: Colors.green,
-        foregroundColor: Colors.white,
+
+        backgroundColor:
+        Colors.green,
+
+        foregroundColor:
+        Colors.white,
+
         title: const Text(
           "traceHer",
+
           style: TextStyle(
-            fontWeight: FontWeight.bold,
+            fontWeight:
+            FontWeight.bold,
+
             fontSize: 24,
           ),
         ),
       ),
+
+      // ======================================================
+      // BODY
+      // ======================================================
+
       body: RefreshIndicator(
         onRefresh: loadContacts,
+
         child: ListView(
-          padding: const EdgeInsets.all(20),
+          padding:
+          const EdgeInsets.all(20),
+
           children: [
+
+            // ==================================================
+            // GREETING
+            // ==================================================
+
             Text(
-              "Hi, ${userProfile?.name ?? "User"} 👋",
+              "Hi, "
+                  "${userProfile?.name ?? "User"} 👋",
+
               style: const TextStyle(
                 fontSize: 18,
                 color: Colors.grey,
               ),
             ),
+
             const SizedBox(height: 6),
+
             const Text(
               "Your Safety Dashboard",
-              style: TextStyle(fontSize: 30, fontWeight: FontWeight.bold),
+
+              style: TextStyle(
+                fontSize: 30,
+                fontWeight:
+                FontWeight.bold,
+              ),
             ),
+
             const SizedBox(height: 25),
 
-            // Device Status Card
+            // ==================================================
+            // DEVICE STATUS CARD
+            // ==================================================
+
             Card(
               elevation: 4,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(18),
+
+              shape:
+              RoundedRectangleBorder(
+                borderRadius:
+                BorderRadius.circular(18),
               ),
+
               child: Padding(
-                padding: const EdgeInsets.all(20),
+                padding:
+                const EdgeInsets.all(20),
+
                 child: Column(
                   children: [
+
                     Row(
                       children: [
-                        const CircleAvatar(
+
+                        // --------------------------------------
+                        // BLUETOOTH ICON
+                        // --------------------------------------
+
+                        CircleAvatar(
                           radius: 22,
-                          backgroundColor: Colors.green,
-                          child: Icon(Icons.bluetooth_connected, color: Colors.white),
+
+                          backgroundColor:
+                          deviceConnected
+                              ? Colors.green
+                              : Colors.red,
+
+                          child: Icon(
+                            deviceConnected
+                                ? Icons
+                                .bluetooth_connected
+                                : Icons
+                                .bluetooth_disabled,
+
+                            color:
+                            Colors.white,
+                          ),
                         ),
+
                         const SizedBox(width: 15),
+
+                        // --------------------------------------
+                        // STATUS TEXT
+                        // --------------------------------------
 
                         Expanded(
                           child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                            crossAxisAlignment:
+                            CrossAxisAlignment.start,
+
                             children: [
+
                               const Text(
                                 "Device Status",
-                                style: TextStyle(color: Colors.grey),
+
+                                style:
+                                TextStyle(
+                                  color:
+                                  Colors.grey,
+                                ),
                               ),
-                              const SizedBox(height: 3),
+
+                              const SizedBox(
+                                height: 3,
+                              ),
 
                               Text(
-                                BleManager.instance.isConnected
+                                deviceConnected
                                     ? "Connected"
                                     : "Disconnected",
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
+
+                                style:
+                                TextStyle(
+                                  fontWeight:
+                                  FontWeight.bold,
+
                                   fontSize: 20,
-                                  color: BleManager.instance.isConnected
+
+                                  color:
+                                  deviceConnected
                                       ? Colors.green
                                       : Colors.red,
                                 ),
@@ -276,23 +547,56 @@ class _MyHomePageState extends State<MyHomePage> {
                           ),
                         ),
 
+                        // --------------------------------------
+                        // STATUS ICON
+                        // --------------------------------------
+
                         Icon(
-                          BleManager.instance.isConnected
+                          deviceConnected
                               ? Icons.check_circle
                               : Icons.cancel,
-                          color: BleManager.instance.isConnected
+
+                          color:
+                          deviceConnected
                               ? Colors.green
                               : Colors.red,
+
                           size: 30,
                         ),
                       ],
                     ),
-                    const Divider(height: 30),
+
+                    const Divider(
+                      height: 30,
+                    ),
+
+                    // ------------------------------------------
+                    // STATUS TILES
+                    // ------------------------------------------
+
                     Row(
                       children: [
-                        statusTile(Icons.shield, "SOS", "Ready", Colors.green),
-                        statusTile(Icons.people, "Contacts", "$contactCount", Colors.blue),
-                        statusTile(Icons.battery_full, "Battery", "--", Colors.orange),
+
+                        statusTile(
+                          Icons.shield,
+                          "SOS",
+                          "Ready",
+                          Colors.green,
+                        ),
+
+                        statusTile(
+                          Icons.people,
+                          "Contacts",
+                          "$contactCount",
+                          Colors.blue,
+                        ),
+
+                        statusTile(
+                          Icons.battery_full,
+                          "Battery",
+                          "--",
+                          Colors.orange,
+                        ),
                       ],
                     ),
                   ],
@@ -302,106 +606,210 @@ class _MyHomePageState extends State<MyHomePage> {
 
             const SizedBox(height: 25),
 
-            // Location Service Card
+            // ==================================================
+            // LOCATION CARD
+            // ==================================================
+
             Card(
               elevation: 4,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(18),
+
+              shape:
+              RoundedRectangleBorder(
+                borderRadius:
+                BorderRadius.circular(18),
               ),
+
               child: Padding(
-                padding: const EdgeInsets.all(20),
+                padding:
+                const EdgeInsets.all(20),
+
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment:
+                  CrossAxisAlignment.start,
+
                   children: [
 
                     const Text(
                       "📍 Current Location",
+
                       style: TextStyle(
                         fontSize: 18,
-                        fontWeight: FontWeight.bold,
+                        fontWeight:
+                        FontWeight.bold,
                       ),
                     ),
 
                     const SizedBox(height: 15),
 
+                    // ------------------------------------------
+                    // LOCATION STATUS
+                    // ------------------------------------------
+
                     if (loadingLocation)
+
                       const Center(
-                        child: CircularProgressIndicator(),
+                        child:
+                        CircularProgressIndicator(),
                       )
-                    else if (currentPosition == null)
+
+                    else if (
+                    currentPosition == null
+                    )
+
                       const Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                        crossAxisAlignment:
+                        CrossAxisAlignment.start,
+
                         children: [
 
                           Text(
                             "Location not available",
+
                             style: TextStyle(
-                              fontWeight: FontWeight.bold,
+                              fontWeight:
+                              FontWeight.bold,
                             ),
                           ),
 
                           SizedBox(height: 8),
 
                           Text(
-                            "Tap Refresh to get your current location.",
+                            "Tap Refresh to get "
+                                "your current location.",
                           ),
-
                         ],
                       )
+
                     else
+
                       Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                        crossAxisAlignment:
+                        CrossAxisAlignment.start,
+
                         children: [
 
                           Text(
-                            "Latitude : ${currentPosition!.latitude}",
+                            "Latitude : "
+                                "${currentPosition!.latitude}",
                           ),
 
-                          SizedBox(height: 5),
+                          const SizedBox(
+                            height: 5,
+                          ),
 
                           Text(
-                            "Longitude : ${currentPosition!.longitude}",
+                            "Longitude : "
+                                "${currentPosition!.longitude}",
                           ),
-
                         ],
                       ),
 
                     const SizedBox(height: 20),
 
+                    // ------------------------------------------
+                    // REFRESH LOCATION
+                    // ------------------------------------------
+
                     SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: getCurrentLocation,
-                        icon: const Icon(Icons.refresh),
-                        label: const Text("Refresh Location"),
+                      width:
+                      double.infinity,
+
+                      child:
+                      ElevatedButton.icon(
+                        onPressed:
+                        getCurrentLocation,
+
+                        icon:
+                        const Icon(
+                          Icons.refresh,
+                        ),
+
+                        label:
+                        const Text(
+                          "Refresh Location",
+                        ),
                       ),
                     ),
-
                   ],
                 ),
               ),
             ),
 
             const SizedBox(height: 30),
-            const Text("Quick Actions", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+
+            // ==================================================
+            // QUICK ACTIONS
+            // ==================================================
+
+            const Text(
+              "Quick Actions",
+
+              style: TextStyle(
+                fontWeight:
+                FontWeight.bold,
+                fontSize: 18,
+              ),
+            ),
+
             const SizedBox(height: 15),
 
-            actionButton(Icons.contacts, "Emergency Contacts", () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const EmergencyContactsPage()),
-              );
-              loadContacts();
-            }),
+            // ==================================================
+            // EMERGENCY CONTACTS
+            // ==================================================
+
+            actionButton(
+              Icons.contacts,
+              "Emergency Contacts",
+
+                  () async {
+
+                await Navigator.push(
+                  context,
+
+                  MaterialPageRoute(
+                    builder: (_) =>
+                    const EmergencyContactsPage(),
+                  ),
+                );
+
+                loadContacts();
+
+                // Check native BLE status
+                // when returning to dashboard
+                checkNativeBleConnection();
+              },
+            ),
+
             const SizedBox(height: 15),
 
+            // ==================================================
+            // DEVICE SETTINGS
+            // ==================================================
 
-            actionButton(Icons.settings, "Device Settings", () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text("Coming Soon")),
-              );
-            }),
+            actionButton(
+              Icons.settings,
+              "Device Settings",
+
+                  () {
+
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(
+                  const SnackBar(
+                    content:
+                    Text(
+                      "Coming Soon",
+                    ),
+                  ),
+                );
+              },
+            ),
+
             const SizedBox(height: 15),
+
+            // ==================================================
+            // TEST SOS
+            // ==================================================
 
             actionButton(
               Icons.warning_amber_rounded,
