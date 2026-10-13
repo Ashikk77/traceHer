@@ -1,3 +1,4 @@
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -68,6 +69,11 @@ class _MyHomePageState extends State<MyHomePage>
     _bleStatusTimer?.cancel();
     _bleStatusTimer = null;
 
+    // Remove callbacks owned by this dashboard
+    BleManager.instance.onBatteryChanged = null;
+    BleManager.instance.onMessageReceived = null;
+    BleManager.instance.onConnectionChanged = null;
+
     super.dispose();
   }
 
@@ -76,8 +82,7 @@ class _MyHomePageState extends State<MyHomePage>
   // ==========================================================
 
   @override
-  void didChangeAppLifecycleState(
-      AppLifecycleState state) {
+  void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       debugPrint(
         "App resumed - checking native BLE status",
@@ -87,11 +92,9 @@ class _MyHomePageState extends State<MyHomePage>
 
       // Restart live BLE monitoring
       _startBleStatusMonitoring();
-    } else if (
-    state == AppLifecycleState.paused ||
+    } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive ||
         state == AppLifecycleState.detached) {
-
       // Stop polling while dashboard is not active
       _bleStatusTimer?.cancel();
       _bleStatusTimer = null;
@@ -113,9 +116,7 @@ class _MyHomePageState extends State<MyHomePage>
       return;
     }
 
-    debugPrint(
-      "Starting live BLE status monitoring",
-    );
+    debugPrint("Starting live BLE status monitoring");
 
     // Check immediately
     checkNativeBleConnection();
@@ -150,6 +151,8 @@ class _MyHomePageState extends State<MyHomePage>
     Future.delayed(
       const Duration(seconds: 1),
           () {
+        if (!mounted) return;
+
         if (!BleManager.instance.isConnected) {
           BleManager.instance.loadSavedDevice();
         }
@@ -160,26 +163,29 @@ class _MyHomePageState extends State<MyHomePage>
     );
 
     // BLE message received by Flutter BLE manager
-    BleManager.instance.onMessageReceived =
-        (message) async {
+    // Existing SOS handling is preserved
+    BleManager.instance.onMessageReceived = (message) async {
       if (message.trim() == "SOS") {
-        debugPrint(
-          "HomePage received SOS",
-        );
+        debugPrint("HomePage received SOS");
 
         await testSOS();
       }
     };
 
     // Flutter BLE connection changed
-    BleManager.instance.onConnectionChanged =
-        () {
+    BleManager.instance.onConnectionChanged = () {
       if (!mounted) return;
 
-      // Do not directly trust the Flutter BLE state.
       // Ask the native foreground service for the
       // actual BLE connection status.
       checkNativeBleConnection();
+    };
+
+    // NEW: Refresh dashboard when battery data arrives
+    BleManager.instance.onBatteryChanged = () {
+      if (!mounted) return;
+
+      setState(() {});
     };
   }
 
@@ -188,8 +194,7 @@ class _MyHomePageState extends State<MyHomePage>
   // ==========================================================
 
   Future<void> checkNativeBleConnection() async {
-    // Prevent overlapping calls if the previous check
-    // has not completed yet.
+    // Prevent overlapping calls
     if (_checkingBleStatus) {
       return;
     }
@@ -205,8 +210,7 @@ class _MyHomePageState extends State<MyHomePage>
 
       if (!mounted) return;
 
-      // Only update UI and print a log when the
-      // connection status actually changes.
+      // Only update UI when status actually changes
       if (deviceConnected != connected) {
         setState(() {
           deviceConnected = connected;
@@ -243,8 +247,7 @@ class _MyHomePageState extends State<MyHomePage>
   // ==========================================================
 
   Future<void> loadProfile() async {
-    final profile =
-    await userService.getProfile();
+    final profile = await userService.getProfile();
 
     if (!mounted) return;
 
@@ -258,8 +261,7 @@ class _MyHomePageState extends State<MyHomePage>
   // ==========================================================
 
   Future<void> loadContacts() async {
-    final contacts =
-    await contactService.getContacts();
+    final contacts = await contactService.getContacts();
 
     if (!mounted) return;
 
@@ -273,6 +275,8 @@ class _MyHomePageState extends State<MyHomePage>
   // ==========================================================
 
   Future<void> getCurrentLocation() async {
+    if (!mounted) return;
+
     setState(() {
       loadingLocation = true;
     });
@@ -296,12 +300,9 @@ class _MyHomePageState extends State<MyHomePage>
     debugPrint("STEP 1");
 
     // Get cached GPS location
-    Position? position =
-        LocationManager.instance.lastPosition;
+    Position? position = LocationManager.instance.lastPosition;
 
-    debugPrint(
-      "Cached Location: $position",
-    );
+    debugPrint("Cached Location: $position");
 
     String mapLink;
 
@@ -311,23 +312,18 @@ class _MyHomePageState extends State<MyHomePage>
           "${position.latitude},"
           "${position.longitude}";
     } else {
-      mapLink =
-      "Location unavailable";
+      mapLink = "Location unavailable";
     }
 
     // Load saved contacts
-    final contacts =
-    await contactService.getContacts();
+    final contacts = await contactService.getContacts();
 
     if (contacts.isEmpty) {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content:
-          Text(
-            "No emergency contacts saved.",
-          ),
+          content: Text("No emergency contacts saved."),
         ),
       );
 
@@ -337,8 +333,7 @@ class _MyHomePageState extends State<MyHomePage>
     // Send SMS to every contact
     for (final contact in contacts) {
       debugPrint(
-        "Sending SMS to: "
-            "${contact.phoneNumber}",
+        "Sending SMS to: ${contact.phoneNumber}",
       );
 
       await smsService.sendSMS(
@@ -357,10 +352,7 @@ class _MyHomePageState extends State<MyHomePage>
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content:
-        Text(
-          "SOS Test Sent Successfully",
-        ),
+        content: Text("SOS Test Sent Successfully"),
       ),
     );
 
@@ -388,9 +380,9 @@ class _MyHomePageState extends State<MyHomePage>
           const SizedBox(height: 10),
           Text(
             value,
+            textAlign: TextAlign.center,
             style: const TextStyle(
-              fontWeight:
-              FontWeight.bold,
+              fontWeight: FontWeight.bold,
               fontSize: 18,
             ),
           ),
@@ -431,9 +423,14 @@ class _MyHomePageState extends State<MyHomePage>
 
   @override
   Widget build(BuildContext context) {
+    final int? batteryPercentage =
+        BleManager.instance.batteryPercentage;
+
+    final double? batteryVoltage =
+        BleManager.instance.batteryVoltage;
+
     return Scaffold(
-      backgroundColor:
-      Colors.grey.shade100,
+      backgroundColor: Colors.grey.shade100,
 
       // ======================================================
       // APP BAR
@@ -441,15 +438,12 @@ class _MyHomePageState extends State<MyHomePage>
 
       appBar: AppBar(
         elevation: 0,
-        backgroundColor:
-        Colors.green,
-        foregroundColor:
-        Colors.white,
+        backgroundColor: Colors.green,
+        foregroundColor: Colors.white,
         title: const Text(
           "traceHer",
           style: TextStyle(
-            fontWeight:
-            FontWeight.bold,
+            fontWeight: FontWeight.bold,
             fontSize: 24,
           ),
         ),
@@ -461,19 +455,15 @@ class _MyHomePageState extends State<MyHomePage>
 
       body: RefreshIndicator(
         onRefresh: loadContacts,
-
         child: ListView(
-          padding:
-          const EdgeInsets.all(20),
-
+          padding: const EdgeInsets.all(20),
           children: [
             // ==================================================
             // GREETING
             // ==================================================
 
             Text(
-              "Hi, "
-                  "${userProfile?.name ?? "User"} 👋",
+              "Hi, ${userProfile?.name ?? "User"} 👋",
               style: const TextStyle(
                 fontSize: 18,
                 color: Colors.grey,
@@ -486,8 +476,7 @@ class _MyHomePageState extends State<MyHomePage>
               "Your Safety Dashboard",
               style: TextStyle(
                 fontSize: 30,
-                fontWeight:
-                FontWeight.bold,
+                fontWeight: FontWeight.bold,
               ),
             ),
 
@@ -499,82 +488,52 @@ class _MyHomePageState extends State<MyHomePage>
 
             Card(
               elevation: 4,
-              shape:
-              RoundedRectangleBorder(
-                borderRadius:
-                BorderRadius.circular(18),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
               ),
-
               child: Padding(
-                padding:
-                const EdgeInsets.all(20),
-
+                padding: const EdgeInsets.all(20),
                 child: Column(
                   children: [
                     Row(
                       children: [
-                        // --------------------------------------
                         // BLUETOOTH ICON
-                        // --------------------------------------
-
                         CircleAvatar(
                           radius: 22,
-                          backgroundColor:
-                          deviceConnected
+                          backgroundColor: deviceConnected
                               ? Colors.green
                               : Colors.red,
-
                           child: Icon(
                             deviceConnected
-                                ? Icons
-                                .bluetooth_connected
-                                : Icons
-                                .bluetooth_disabled,
-
-                            color:
-                            Colors.white,
+                                ? Icons.bluetooth_connected
+                                : Icons.bluetooth_disabled,
+                            color: Colors.white,
                           ),
                         ),
 
                         const SizedBox(width: 15),
 
-                        // --------------------------------------
                         // STATUS TEXT
-                        // --------------------------------------
-
                         Expanded(
                           child: Column(
                             crossAxisAlignment:
                             CrossAxisAlignment.start,
-
                             children: [
                               const Text(
                                 "Device Status",
-                                style:
-                                TextStyle(
-                                  color:
-                                  Colors.grey,
+                                style: TextStyle(
+                                  color: Colors.grey,
                                 ),
                               ),
-
-                              const SizedBox(
-                                height: 3,
-                              ),
-
+                              const SizedBox(height: 3),
                               Text(
                                 deviceConnected
                                     ? "Connected"
                                     : "Disconnected",
-
-                                style:
-                                TextStyle(
-                                  fontWeight:
-                                  FontWeight.bold,
-
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
                                   fontSize: 20,
-
-                                  color:
-                                  deviceConnected
+                                  color: deviceConnected
                                       ? Colors.green
                                       : Colors.red,
                                 ),
@@ -583,33 +542,22 @@ class _MyHomePageState extends State<MyHomePage>
                           ),
                         ),
 
-                        // --------------------------------------
                         // STATUS ICON
-                        // --------------------------------------
-
                         Icon(
                           deviceConnected
                               ? Icons.check_circle
                               : Icons.cancel,
-
-                          color:
-                          deviceConnected
+                          color: deviceConnected
                               ? Colors.green
                               : Colors.red,
-
                           size: 30,
                         ),
                       ],
                     ),
 
-                    const Divider(
-                      height: 30,
-                    ),
+                    const Divider(height: 30),
 
-                    // ------------------------------------------
                     // STATUS TILES
-                    // ------------------------------------------
-
                     Row(
                       children: [
                         statusTile(
@@ -626,14 +574,45 @@ class _MyHomePageState extends State<MyHomePage>
                           Colors.blue,
                         ),
 
+                        // UPDATED BATTERY TILE
                         statusTile(
-                          Icons.battery_full,
+                          batteryPercentage == null
+                              ? Icons.battery_unknown
+                              : batteryPercentage >= 80
+                              ? Icons.battery_full
+                              : batteryPercentage >= 40
+                              ? Icons.battery_5_bar
+                              : batteryPercentage >= 15
+                              ? Icons.battery_3_bar
+                              : Icons.battery_alert,
                           "Battery",
-                          "--",
-                          Colors.orange,
+                          batteryPercentage == null
+                              ? "--"
+                              : "$batteryPercentage%",
+                          batteryPercentage == null
+                              ? Colors.grey
+                              : batteryPercentage <= 15
+                              ? Colors.red
+                              : Colors.orange,
                         ),
                       ],
                     ),
+
+                    // Show voltage when battery data is available
+                    if (batteryVoltage != null) ...[
+                      const SizedBox(height: 12),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: Text(
+                          "Battery voltage: "
+                              "${batteryVoltage.toStringAsFixed(2)} V",
+                          style: const TextStyle(
+                            color: Colors.grey,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -647,60 +626,41 @@ class _MyHomePageState extends State<MyHomePage>
 
             Card(
               elevation: 4,
-              shape:
-              RoundedRectangleBorder(
-                borderRadius:
-                BorderRadius.circular(18),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
               ),
-
               child: Padding(
-                padding:
-                const EdgeInsets.all(20),
-
+                padding: const EdgeInsets.all(20),
                 child: Column(
-                  crossAxisAlignment:
-                  CrossAxisAlignment.start,
-
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
                       "📍 Current Location",
                       style: TextStyle(
                         fontSize: 18,
-                        fontWeight:
-                        FontWeight.bold,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
 
                     const SizedBox(height: 15),
 
-                    // ------------------------------------------
                     // LOCATION STATUS
-                    // ------------------------------------------
-
                     if (loadingLocation)
                       const Center(
-                        child:
-                        CircularProgressIndicator(),
+                        child: CircularProgressIndicator(),
                       )
-                    else if (
-                    currentPosition == null
-                    )
+                    else if (currentPosition == null)
                       const Column(
                         crossAxisAlignment:
                         CrossAxisAlignment.start,
-
                         children: [
                           Text(
                             "Location not available",
-                            style:
-                            TextStyle(
-                              fontWeight:
-                              FontWeight.bold,
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
                             ),
                           ),
-
                           SizedBox(height: 8),
-
                           Text(
                             "Tap Refresh to get "
                                 "your current location.",
@@ -711,17 +671,12 @@ class _MyHomePageState extends State<MyHomePage>
                       Column(
                         crossAxisAlignment:
                         CrossAxisAlignment.start,
-
                         children: [
                           Text(
                             "Latitude : "
                                 "${currentPosition!.latitude}",
                           ),
-
-                          const SizedBox(
-                            height: 5,
-                          ),
-
+                          const SizedBox(height: 5),
                           Text(
                             "Longitude : "
                                 "${currentPosition!.longitude}",
@@ -731,28 +686,13 @@ class _MyHomePageState extends State<MyHomePage>
 
                     const SizedBox(height: 20),
 
-                    // ------------------------------------------
                     // REFRESH LOCATION
-                    // ------------------------------------------
-
                     SizedBox(
-                      width:
-                      double.infinity,
-
-                      child:
-                      ElevatedButton.icon(
-                        onPressed:
-                        getCurrentLocation,
-
-                        icon:
-                        const Icon(
-                          Icons.refresh,
-                        ),
-
-                        label:
-                        const Text(
-                          "Refresh Location",
-                        ),
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: getCurrentLocation,
+                        icon: const Icon(Icons.refresh),
+                        label: const Text("Refresh Location"),
                       ),
                     ),
                   ],
@@ -769,18 +709,14 @@ class _MyHomePageState extends State<MyHomePage>
             const Text(
               "Quick Actions",
               style: TextStyle(
-                fontWeight:
-                FontWeight.bold,
+                fontWeight: FontWeight.bold,
                 fontSize: 18,
               ),
             ),
 
             const SizedBox(height: 15),
 
-            // ==================================================
             // EMERGENCY CONTACTS
-            // ==================================================
-
             actionButton(
               Icons.contacts,
               "Emergency Contacts",
@@ -793,32 +729,25 @@ class _MyHomePageState extends State<MyHomePage>
                   ),
                 );
 
+                if (!mounted) return;
+
                 loadContacts();
 
-                // Check native BLE status
-                // when returning to dashboard
+                // Check native BLE status when returning
                 checkNativeBleConnection();
               },
             ),
 
             const SizedBox(height: 15),
 
-            // ==================================================
             // DEVICE SETTINGS
-            // ==========================================================
-
             actionButton(
               Icons.settings,
               "Device Settings",
                   () {
-                ScaffoldMessenger.of(
-                  context,
-                ).showSnackBar(
+                ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
-                    content:
-                    Text(
-                      "Coming Soon",
-                    ),
+                    content: Text("Coming Soon"),
                   ),
                 );
               },
@@ -826,10 +755,7 @@ class _MyHomePageState extends State<MyHomePage>
 
             const SizedBox(height: 15),
 
-            // ==================================================
             // TEST SOS
-            // ==================================================
-
             actionButton(
               Icons.warning_amber_rounded,
               "Test SOS",

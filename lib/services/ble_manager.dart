@@ -1,3 +1,4 @@
+
 import 'dart:async';
 import 'dart:convert';
 
@@ -39,8 +40,14 @@ class BleManager {
   Function(String message)? onMessageReceived;
   VoidCallback? onConnectionChanged;
 
+  // Battery information received from ESP32
+  double? batteryVoltage;
+  int? batteryPercentage;
+  VoidCallback? onBatteryChanged;
+
   StreamSubscription<List<ScanResult>>? _scanSubscription;
-  StreamSubscription<BluetoothConnectionState>? _connectionSubscription;
+  StreamSubscription<BluetoothConnectionState>?
+  _connectionSubscription;
   StreamSubscription<List<int>>? _notifySubscription;
 
   bool _reconnecting = false;
@@ -56,26 +63,16 @@ class BleManager {
   Future<void> saveDevice(String deviceId) async {
     final prefs = await SharedPreferences.getInstance();
 
-    // Save for Flutter
-    await prefs.setString(
-      "saved_ble_device",
-      deviceId,
-    );
+    await prefs.setString("saved_ble_device", deviceId);
 
     savedDeviceId = deviceId;
 
-    debugPrint(
-      "Saved BLE Device: $deviceId",
-    );
+    debugPrint("Saved BLE Device: $deviceId");
 
-    // Also send the SAME device address to
-    // the native foreground BLE service.
     try {
       await _serviceChannel.invokeMethod(
         'saveBleDevice',
-        {
-          'deviceId': deviceId,
-        },
+        {'deviceId': deviceId},
       );
 
       debugPrint(
@@ -94,53 +91,66 @@ class BleManager {
   Future<void> _discoverServices(
       BluetoothDevice device,
       ) async {
-    debugPrint(
-      "Discovering Services...",
-    );
+    debugPrint("Discovering Services...");
 
     List<BluetoothService> services =
     await device.discoverServices();
 
     for (BluetoothService service in services) {
-      if (service.uuid
-          .toString()
-          .toUpperCase() ==
+      if (service.uuid.toString().toUpperCase() ==
           serviceUuid.toUpperCase()) {
         for (BluetoothCharacteristic characteristic
         in service.characteristics) {
-          if (characteristic.uuid
-              .toString()
-              .toUpperCase() ==
+          if (characteristic.uuid.toString().toUpperCase() ==
               characteristicUuid.toUpperCase()) {
-            notifyCharacteristic =
-                characteristic;
+            notifyCharacteristic = characteristic;
 
-            await characteristic.setNotifyValue(
-              true,
-            );
+            await characteristic.setNotifyValue(true);
 
             await _notifySubscription?.cancel();
 
             _notifySubscription =
-                characteristic.lastValueStream
-                    .listen((value) {
+                characteristic.lastValueStream.listen((value) {
                   if (value.isEmpty) return;
 
-                  String message =
-                  utf8.decode(value).trim();
+                  String message = utf8.decode(value).trim();
 
-                  debugPrint(
-                    "Received : $message",
-                  );
+                  debugPrint("Received : $message");
 
-                  onMessageReceived?.call(
-                    message,
-                  );
+                  // Battery message format:
+                  // BATTERY:3.63,24
+                  if (message.startsWith("BATTERY:")) {
+                    try {
+                      final data =
+                      message.substring(8).split(",");
+
+                      if (data.length == 2) {
+                        final voltage =
+                        double.parse(data[0].trim());
+                        final percentage =
+                        int.parse(data[1].trim());
+
+                        batteryVoltage = voltage;
+                        batteryPercentage =
+                            percentage.clamp(0, 100);
+
+                        debugPrint(
+                          "Battery: $batteryVoltage V, "
+                              "$batteryPercentage%",
+                        );
+
+                        onBatteryChanged?.call();
+                      }
+                    } catch (e) {
+                      debugPrint("Battery parsing error: $e");
+                    }
+                  }
+
+                  // Preserve existing SOS message handling
+                  onMessageReceived?.call(message);
                 });
 
-            debugPrint(
-              "Notification Ready",
-            );
+            debugPrint("Notification Ready");
 
             return;
           }
@@ -148,18 +158,14 @@ class BleManager {
       }
     }
 
-    debugPrint(
-      "Characteristic Not Found",
-    );
+    debugPrint("Characteristic Not Found");
   }
 
   // ==============================
   // DISCONNECT
   // ==============================
   Future<void> disconnect() async {
-    debugPrint(
-      "Disconnecting TraceHer...",
-    );
+    debugPrint("Disconnecting TraceHer...");
 
     allowReconnect = false;
     _reconnecting = false;
@@ -185,25 +191,18 @@ class BleManager {
     connectedDevice = null;
     notifyCharacteristic = null;
 
-    debugPrint(
-      "Disconnected Successfully",
-    );
+    debugPrint("Disconnected Successfully");
   }
 
   // ==============================
   // GET SAVED DEVICE
   // ==============================
   Future<String?> getSavedDevice() async {
-    final prefs =
-    await SharedPreferences.getInstance();
+    final prefs = await SharedPreferences.getInstance();
 
-    final id = prefs.getString(
-      "saved_ble_device",
-    );
+    final id = prefs.getString("saved_ble_device");
 
-    debugPrint(
-      "Saved Device Loaded: $id",
-    );
+    debugPrint("Saved Device Loaded: $id");
 
     return id;
   }
@@ -216,30 +215,22 @@ class BleManager {
 
     _loadingSavedDevice = true;
 
-    final savedId =
-    await getSavedDevice();
+    try {
+      final savedId = await getSavedDevice();
 
-    if (savedId == null) {
-      debugPrint(
-        "No saved device found",
-      );
+      if (savedId == null) {
+        debugPrint("No saved device found");
+        return;
+      }
 
+      savedDeviceId = savedId;
+
+      debugPrint("Trying saved device: $savedId");
+
+      await reconnectToSavedDevice(savedId);
+    } finally {
       _loadingSavedDevice = false;
-
-      return;
     }
-
-    savedDeviceId = savedId;
-
-    debugPrint(
-      "Trying saved device: $savedId",
-    );
-
-    await reconnectToSavedDevice(
-      savedId,
-    );
-
-    _loadingSavedDevice = false;
   }
 
   // ==============================
@@ -250,17 +241,11 @@ class BleManager {
       return true;
     }
 
-    _connectionCompleter =
-        Completer<bool>();
+    _connectionCompleter = Completer<bool>();
 
-    return await _connectionCompleter!.future
-        .timeout(
-      const Duration(
-        seconds: 15,
-      ),
-      onTimeout: () {
-        return false;
-      },
+    return await _connectionCompleter!.future.timeout(
+      const Duration(seconds: 15),
+      onTimeout: () => false,
     );
   }
 
@@ -270,49 +255,39 @@ class BleManager {
   Future<void> reconnectToSavedDevice(
       String deviceId,
       ) async {
-    debugPrint(
-      "Searching saved device...",
-    );
+    debugPrint("Searching saved device...");
 
     await FlutterBluePlus.stopScan();
 
-    StreamSubscription<List<ScanResult>>?
-    subscription;
+    StreamSubscription<List<ScanResult>>? subscription;
 
-    subscription =
-        FlutterBluePlus.scanResults
-            .listen((results) async {
-          for (final result in results) {
-            debugPrint(
-              "Found: "
-                  "${result.device.platformName} "
-                  "${result.device.remoteId.str}",
-            );
+    subscription = FlutterBluePlus.scanResults.listen(
+          (results) async {
+        for (final result in results) {
+          debugPrint(
+            "Found: ${result.device.platformName} "
+                "${result.device.remoteId.str}",
+          );
 
-            if (result.device.remoteId.str ==
-                deviceId) {
-              debugPrint(
-                "Saved device found!",
-              );
+          if (result.device.remoteId.str == deviceId) {
+            debugPrint("Saved device found!");
 
-              await FlutterBluePlus.stopScan();
+            await FlutterBluePlus.stopScan();
+            await subscription?.cancel();
 
-              await subscription?.cancel();
+            await connect(result.device);
 
-              await connect(
-                result.device,
-              );
-
-              return;
-            }
+            return;
           }
-        });
+        }
+      },
+    );
 
     await FlutterBluePlus.startScan(
-      timeout: const Duration(
-        seconds: 10,
-      ),
+      timeout: const Duration(seconds: 10),
     );
+
+    await subscription.cancel();
   }
 
   // ==============================
@@ -328,44 +303,31 @@ class BleManager {
 
     try {
       await device.connect(
-        timeout: const Duration(
-          seconds: 10,
-        ),
+        timeout: const Duration(seconds: 10),
         autoConnect: false,
       );
     } catch (e) {
-      debugPrint(
-        "Connect error: $e",
-      );
+      debugPrint("Connect error: $e");
     }
 
-    debugPrint(
-      "Connected to ${device.platformName}",
-    );
+    debugPrint("Connected to ${device.platformName}");
 
-    await saveDevice(
-      device.remoteId.str,
-    );
+    await saveDevice(device.remoteId.str);
 
     isConnected = true;
 
-    _listenConnection(
-      device,
-    );
+    _listenConnection(device);
 
-    await _discoverServices(
-      device,
-    );
+    await _discoverServices(device);
 
-    _connectionCompleter?.complete(
-      true,
-    );
+    if (_connectionCompleter != null &&
+        !_connectionCompleter!.isCompleted) {
+      _connectionCompleter!.complete(true);
+    }
 
     onConnectionChanged?.call();
 
-    debugPrint(
-      "BLE Connected",
-    );
+    debugPrint("BLE Connected");
   }
 
   // ==============================
@@ -376,38 +338,27 @@ class BleManager {
       ) {
     _connectionSubscription?.cancel();
 
-    _connectionSubscription =
-        device.connectionState
-            .listen((state) async {
-          debugPrint(
-            "Connection State : $state",
-          );
+    _connectionSubscription = device.connectionState.listen(
+          (state) async {
+        debugPrint("Connection State : $state");
 
-          if (state ==
-              BluetoothConnectionState.connected) {
-            isConnected = true;
+        if (state == BluetoothConnectionState.connected) {
+          isConnected = true;
+          onConnectionChanged?.call();
 
-            onConnectionChanged?.call();
+          debugPrint("BLE Connected");
+        }
 
-            debugPrint(
-              "BLE Connected",
-            );
-          }
+        if (state == BluetoothConnectionState.disconnected) {
+          isConnected = false;
+          onConnectionChanged?.call();
 
-          if (state ==
-              BluetoothConnectionState
-                  .disconnected) {
-            isConnected = false;
+          debugPrint("BLE Disconnected");
 
-            onConnectionChanged?.call();
-
-            debugPrint(
-              "BLE Disconnected",
-            );
-
-            await reconnect();
-          }
-        });
+          await reconnect();
+        }
+      },
+    );
   }
 
   // ==============================
@@ -415,89 +366,64 @@ class BleManager {
   // ==============================
   Future<void> reconnect() async {
     if (savedDeviceId == null) {
-      savedDeviceId =
-      await getSavedDevice();
+      savedDeviceId = await getSavedDevice();
     }
 
     if (!allowReconnect) {
-      debugPrint(
-        "Reconnect disabled",
-      );
-
+      debugPrint("Reconnect disabled");
       return;
     }
 
     if (_reconnecting) {
-      debugPrint(
-        "Reconnect already running",
-      );
-
+      debugPrint("Reconnect already running");
       return;
     }
 
     _reconnecting = true;
 
-    debugPrint(
-      "Starting Auto Reconnect...",
-    );
+    debugPrint("Starting Auto Reconnect...");
 
     await _scanSubscription?.cancel();
 
-    _scanSubscription =
-        FlutterBluePlus.scanResults
-            .listen((results) async {
-          for (final result in results) {
-            if (savedDeviceId != null &&
-                result.device.remoteId.str ==
-                    savedDeviceId) {
-              debugPrint(
-                "TraceHer Found!",
-              );
+    _scanSubscription = FlutterBluePlus.scanResults.listen(
+          (results) async {
+        for (final result in results) {
+          if (savedDeviceId != null &&
+              result.device.remoteId.str == savedDeviceId) {
+            debugPrint("TraceHer Found!");
 
-              _reconnecting = false;
+            _reconnecting = false;
 
-              await FlutterBluePlus.stopScan();
+            await FlutterBluePlus.stopScan();
 
-              await connect(
-                result.device,
-              );
+            await connect(result.device);
 
-              return;
-            }
+            return;
           }
-        });
+        }
+      },
+    );
 
     while (_reconnecting) {
       try {
         if (FlutterBluePlus.isScanningNow) {
           await Future.delayed(
-            const Duration(
-              seconds: 2,
-            ),
+            const Duration(seconds: 2),
           );
-
           continue;
         }
 
-        debugPrint(
-          "Searching for TraceHer...",
-        );
+        debugPrint("Searching for TraceHer...");
 
         await FlutterBluePlus.startScan(
-          timeout: const Duration(
-            seconds: 5,
-          ),
+          timeout: const Duration(seconds: 5),
         );
 
         await Future.delayed(
-          const Duration(
-            seconds: 6,
-          ),
+          const Duration(seconds: 6),
         );
       } catch (e) {
-        debugPrint(
-          "Reconnect Error : $e",
-        );
+        debugPrint("Reconnect Error : $e");
       }
     }
   }
