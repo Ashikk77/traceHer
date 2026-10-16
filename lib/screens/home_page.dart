@@ -36,16 +36,15 @@ class _MyHomePageState extends State<MyHomePage>
   Position? currentPosition;
   bool loadingLocation = false;
 
-  // Actual BLE status from native foreground service
+  // Actual BLE status from native foreground service.
   bool deviceConnected = false;
 
-  // Prevent multiple BLE status requests at the same time
+  // Prevent overlapping native BLE status requests.
   bool _checkingBleStatus = false;
 
-  // Timer for live BLE status updates
+  // Timer for live BLE and battery updates.
   Timer? _bleStatusTimer;
 
-  // Correct native service channel
   static const MethodChannel serviceChannel =
   MethodChannel('traceher/service');
 
@@ -55,21 +54,52 @@ class _MyHomePageState extends State<MyHomePage>
 
     WidgetsBinding.instance.addObserver(this);
 
+    // Register callbacks before asynchronous initialization.
+    _registerBleCallbacks();
+
     _initialize();
 
-    // Start live BLE status monitoring
+    // Start live BLE and battery monitoring.
     _startBleStatusMonitoring();
+  }
+
+  // ==========================================================
+  // REGISTER BLE CALLBACKS
+  // ==========================================================
+
+  void _registerBleCallbacks() {
+    // Refresh dashboard whenever BLE battery data changes.
+    BleManager.instance.onBatteryChanged = () {
+      if (!mounted) return;
+
+      debugPrint('Refreshing dashboard battery display');
+      setState(() {});
+    };
+
+    // Preserve existing SOS message handling.
+    BleManager.instance.onMessageReceived = (message) async {
+      if (message.trim() == 'SOS') {
+        debugPrint('HomePage received SOS');
+        await testSOS();
+      }
+    };
+
+    // Refresh native connection status when BLE changes.
+    BleManager.instance.onConnectionChanged = () {
+      if (!mounted) return;
+      checkNativeBleConnection();
+    };
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
 
-    // Stop live BLE status monitoring
+    // Stop live monitoring.
     _bleStatusTimer?.cancel();
     _bleStatusTimer = null;
 
-    // Remove callbacks owned by this dashboard
+    // Remove callbacks owned by this dashboard.
     BleManager.instance.onBatteryChanged = null;
     BleManager.instance.onMessageReceived = null;
     BleManager.instance.onConnectionChanged = null;
@@ -85,47 +115,52 @@ class _MyHomePageState extends State<MyHomePage>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       debugPrint(
-        "App resumed - checking native BLE status",
+        'App resumed - restoring battery and checking BLE status',
       );
+
+      // Restore the latest saved battery reading.
+      BleManager.instance.loadSavedBattery();
 
       checkNativeBleConnection();
 
-      // Restart live BLE monitoring
+      // Restart live monitoring.
       _startBleStatusMonitoring();
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive ||
         state == AppLifecycleState.detached) {
-      // Stop polling while dashboard is not active
+      // Stop polling while the app is inactive.
       _bleStatusTimer?.cancel();
       _bleStatusTimer = null;
 
       debugPrint(
-        "App not active - stopped live BLE status monitoring",
+        'App inactive - stopped live BLE monitoring',
       );
     }
   }
 
   // ==========================================================
-  // LIVE BLE STATUS MONITORING
+  // LIVE BLE AND BATTERY MONITORING
   // ==========================================================
 
   void _startBleStatusMonitoring() {
-    // Avoid creating multiple timers
+    // Avoid creating multiple timers.
     if (_bleStatusTimer != null &&
         _bleStatusTimer!.isActive) {
       return;
     }
 
-    debugPrint("Starting live BLE status monitoring");
+    debugPrint('Starting live BLE and battery monitoring');
 
-    // Check immediately
+    // Check connection and battery immediately.
     checkNativeBleConnection();
+    BleManager.instance.loadSavedBattery();
 
-    // Then check every 1 second
+    // Refresh both every second.
     _bleStatusTimer = Timer.periodic(
       const Duration(seconds: 1),
           (_) {
         checkNativeBleConnection();
+        BleManager.instance.loadSavedBattery();
       },
     );
   }
@@ -135,17 +170,24 @@ class _MyHomePageState extends State<MyHomePage>
   // ==========================================================
 
   Future<void> _initialize() async {
-    // Start reconnect in background
+    // Restore saved battery data first.
+    await BleManager.instance.loadSavedBattery();
+
+    if (!mounted) return;
+
+    // Start reconnecting in the background.
     BleManager.instance.loadSavedDevice();
 
-    // Start GPS tracking
+    // Start GPS tracking.
     await LocationManager.instance.startTracking();
+
+    if (!mounted) return;
 
     loadProfile();
     loadContacts();
     getCurrentLocation();
 
-    // Check actual BLE status from native service
+    // Check actual BLE status from native service.
     await checkNativeBleConnection();
 
     Future.delayed(
@@ -157,36 +199,11 @@ class _MyHomePageState extends State<MyHomePage>
           BleManager.instance.loadSavedDevice();
         }
 
-        // Check native status again after reconnect attempt
+        // Check native status after reconnect attempt.
         checkNativeBleConnection();
+        BleManager.instance.loadSavedBattery();
       },
     );
-
-    // BLE message received by Flutter BLE manager
-    // Existing SOS handling is preserved
-    BleManager.instance.onMessageReceived = (message) async {
-      if (message.trim() == "SOS") {
-        debugPrint("HomePage received SOS");
-
-        await testSOS();
-      }
-    };
-
-    // Flutter BLE connection changed
-    BleManager.instance.onConnectionChanged = () {
-      if (!mounted) return;
-
-      // Ask the native foreground service for the
-      // actual BLE connection status.
-      checkNativeBleConnection();
-    };
-
-    // NEW: Refresh dashboard when battery data arrives
-    BleManager.instance.onBatteryChanged = () {
-      if (!mounted) return;
-
-      setState(() {});
-    };
   }
 
   // ==========================================================
@@ -194,10 +211,8 @@ class _MyHomePageState extends State<MyHomePage>
   // ==========================================================
 
   Future<void> checkNativeBleConnection() async {
-    // Prevent overlapping calls
-    if (_checkingBleStatus) {
-      return;
-    }
+    // Prevent overlapping requests.
+    if (_checkingBleStatus) return;
 
     _checkingBleStatus = true;
 
@@ -210,21 +225,19 @@ class _MyHomePageState extends State<MyHomePage>
 
       if (!mounted) return;
 
-      // Only update UI when status actually changes
+      // Update only when status changes.
       if (deviceConnected != connected) {
         setState(() {
           deviceConnected = connected;
         });
 
         debugPrint(
-          "Dashboard BLE status changed: "
-              "${connected ? "Connected" : "Disconnected"}",
+          'Dashboard BLE status changed: '
+              '${connected ? "Connected" : "Disconnected"}',
         );
       }
     } catch (e) {
-      debugPrint(
-        "Error checking native BLE connection: $e",
-      );
+      debugPrint('Error checking native BLE connection: $e');
 
       if (!mounted) return;
 
@@ -233,9 +246,7 @@ class _MyHomePageState extends State<MyHomePage>
           deviceConnected = false;
         });
 
-        debugPrint(
-          "Dashboard BLE status changed: Disconnected",
-        );
+        debugPrint('Dashboard BLE status changed: Disconnected');
       }
     } finally {
       _checkingBleStatus = false;
@@ -281,15 +292,25 @@ class _MyHomePageState extends State<MyHomePage>
       loadingLocation = true;
     });
 
-    Position? position =
-    await locationService.getCurrentLocation();
+    try {
+      final Position? position =
+      await locationService.getCurrentLocation();
 
-    if (!mounted) return;
+      if (!mounted) return;
 
-    setState(() {
-      currentPosition = position;
-      loadingLocation = false;
-    });
+      setState(() {
+        currentPosition = position;
+        loadingLocation = false;
+      });
+    } catch (e) {
+      debugPrint('Failed to get current location: $e');
+
+      if (!mounted) return;
+
+      setState(() {
+        loadingLocation = false;
+      });
+    }
   }
 
   // ==========================================================
@@ -297,25 +318,25 @@ class _MyHomePageState extends State<MyHomePage>
   // ==========================================================
 
   Future<void> testSOS() async {
-    debugPrint("STEP 1");
+    debugPrint('STEP 1');
 
-    // Get cached GPS location
-    Position? position = LocationManager.instance.lastPosition;
+    // Get cached GPS location.
+    final Position? position =
+        LocationManager.instance.lastPosition;
 
-    debugPrint("Cached Location: $position");
+    debugPrint('Cached Location: $position');
 
     String mapLink;
 
     if (position != null) {
       mapLink =
-      "https://maps.google.com/?q="
-          "${position.latitude},"
-          "${position.longitude}";
+      'https://maps.google.com/?q='
+          '${position.latitude},${position.longitude}';
     } else {
-      mapLink = "Location unavailable";
+      mapLink = 'Location unavailable';
     }
 
-    // Load saved contacts
+    // Load saved contacts.
     final contacts = await contactService.getContacts();
 
     if (contacts.isEmpty) {
@@ -323,40 +344,38 @@ class _MyHomePageState extends State<MyHomePage>
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text("No emergency contacts saved."),
+          content: Text('No emergency contacts saved.'),
         ),
       );
 
       return;
     }
 
-    // Send SMS to every contact
+    // Send SMS to every contact.
     for (final contact in contacts) {
-      debugPrint(
-        "Sending SMS to: ${contact.phoneNumber}",
-      );
+      debugPrint('Sending SMS to: ${contact.phoneNumber}');
 
       await smsService.sendSMS(
         phone: contact.phoneNumber,
         message:
-        "🚨 TraceHer SOS Test Alert\n\n"
-            "I need immediate assistance.\n\n"
-            "Location:\n"
-            "$mapLink",
+        '🚨 TraceHer SOS Test Alert\n\n'
+            'I need immediate assistance.\n\n'
+            'Location:\n'
+            '$mapLink',
       );
     }
 
-    debugPrint("STEP 2");
+    debugPrint('STEP 2');
 
     if (!mounted) return;
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text("SOS Test Sent Successfully"),
+        content: Text('SOS Test Sent Successfully'),
       ),
     );
 
-    debugPrint("STEP 3");
+    debugPrint('STEP 3');
   }
 
   // ==========================================================
@@ -432,16 +451,13 @@ class _MyHomePageState extends State<MyHomePage>
     return Scaffold(
       backgroundColor: Colors.grey.shade100,
 
-      // ======================================================
       // APP BAR
-      // ======================================================
-
       appBar: AppBar(
         elevation: 0,
         backgroundColor: Colors.green,
         foregroundColor: Colors.white,
         title: const Text(
-          "traceHer",
+          'traceHer',
           style: TextStyle(
             fontWeight: FontWeight.bold,
             fontSize: 24,
@@ -449,21 +465,15 @@ class _MyHomePageState extends State<MyHomePage>
         ),
       ),
 
-      // ======================================================
       // BODY
-      // ======================================================
-
       body: RefreshIndicator(
         onRefresh: loadContacts,
         child: ListView(
           padding: const EdgeInsets.all(20),
           children: [
-            // ==================================================
             // GREETING
-            // ==================================================
-
             Text(
-              "Hi, ${userProfile?.name ?? "User"} 👋",
+              'Hi, ${userProfile?.name ?? "User"} 👋',
               style: const TextStyle(
                 fontSize: 18,
                 color: Colors.grey,
@@ -473,7 +483,7 @@ class _MyHomePageState extends State<MyHomePage>
             const SizedBox(height: 6),
 
             const Text(
-              "Your Safety Dashboard",
+              'Your Safety Dashboard',
               style: TextStyle(
                 fontSize: 30,
                 fontWeight: FontWeight.bold,
@@ -482,10 +492,7 @@ class _MyHomePageState extends State<MyHomePage>
 
             const SizedBox(height: 25),
 
-            // ==================================================
             // DEVICE STATUS CARD
-            // ==================================================
-
             Card(
               elevation: 4,
               shape: RoundedRectangleBorder(
@@ -520,7 +527,7 @@ class _MyHomePageState extends State<MyHomePage>
                             CrossAxisAlignment.start,
                             children: [
                               const Text(
-                                "Device Status",
+                                'Device Status',
                                 style: TextStyle(
                                   color: Colors.grey,
                                 ),
@@ -528,8 +535,8 @@ class _MyHomePageState extends State<MyHomePage>
                               const SizedBox(height: 3),
                               Text(
                                 deviceConnected
-                                    ? "Connected"
-                                    : "Disconnected",
+                                    ? 'Connected'
+                                    : 'Disconnected',
                                 style: TextStyle(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 20,
@@ -562,19 +569,19 @@ class _MyHomePageState extends State<MyHomePage>
                       children: [
                         statusTile(
                           Icons.shield,
-                          "SOS",
-                          "Ready",
+                          'SOS',
+                          'Ready',
                           Colors.green,
                         ),
 
                         statusTile(
                           Icons.people,
-                          "Contacts",
-                          "$contactCount",
+                          'Contacts',
+                          '$contactCount',
                           Colors.blue,
                         ),
 
-                        // UPDATED BATTERY TILE
+                        // BATTERY TILE
                         statusTile(
                           batteryPercentage == null
                               ? Icons.battery_unknown
@@ -585,10 +592,10 @@ class _MyHomePageState extends State<MyHomePage>
                               : batteryPercentage >= 15
                               ? Icons.battery_3_bar
                               : Icons.battery_alert,
-                          "Battery",
+                          'Battery',
                           batteryPercentage == null
-                              ? "--"
-                              : "$batteryPercentage%",
+                              ? '--'
+                              : '$batteryPercentage%',
                           batteryPercentage == null
                               ? Colors.grey
                               : batteryPercentage <= 15
@@ -598,14 +605,14 @@ class _MyHomePageState extends State<MyHomePage>
                       ],
                     ),
 
-                    // Show voltage when battery data is available
+                    // BATTERY VOLTAGE
                     if (batteryVoltage != null) ...[
                       const SizedBox(height: 12),
                       Align(
                         alignment: Alignment.centerRight,
                         child: Text(
-                          "Battery voltage: "
-                              "${batteryVoltage.toStringAsFixed(2)} V",
+                          'Battery voltage: '
+                              '${batteryVoltage.toStringAsFixed(2)} V',
                           style: const TextStyle(
                             color: Colors.grey,
                             fontSize: 12,
@@ -620,10 +627,7 @@ class _MyHomePageState extends State<MyHomePage>
 
             const SizedBox(height: 25),
 
-            // ==================================================
             // LOCATION CARD
-            // ==================================================
-
             Card(
               elevation: 4,
               shape: RoundedRectangleBorder(
@@ -635,7 +639,7 @@ class _MyHomePageState extends State<MyHomePage>
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      "📍 Current Location",
+                      '📍 Current Location',
                       style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
@@ -644,7 +648,6 @@ class _MyHomePageState extends State<MyHomePage>
 
                     const SizedBox(height: 15),
 
-                    // LOCATION STATUS
                     if (loadingLocation)
                       const Center(
                         child: CircularProgressIndicator(),
@@ -655,15 +658,15 @@ class _MyHomePageState extends State<MyHomePage>
                         CrossAxisAlignment.start,
                         children: [
                           Text(
-                            "Location not available",
+                            'Location not available',
                             style: TextStyle(
                               fontWeight: FontWeight.bold,
                             ),
                           ),
                           SizedBox(height: 8),
                           Text(
-                            "Tap Refresh to get "
-                                "your current location.",
+                            'Tap Refresh to get '
+                                'your current location.',
                           ),
                         ],
                       )
@@ -673,13 +676,13 @@ class _MyHomePageState extends State<MyHomePage>
                         CrossAxisAlignment.start,
                         children: [
                           Text(
-                            "Latitude : "
-                                "${currentPosition!.latitude}",
+                            'Latitude : '
+                                '${currentPosition!.latitude}',
                           ),
                           const SizedBox(height: 5),
                           Text(
-                            "Longitude : "
-                                "${currentPosition!.longitude}",
+                            'Longitude : '
+                                '${currentPosition!.longitude}',
                           ),
                         ],
                       ),
@@ -692,7 +695,7 @@ class _MyHomePageState extends State<MyHomePage>
                       child: ElevatedButton.icon(
                         onPressed: getCurrentLocation,
                         icon: const Icon(Icons.refresh),
-                        label: const Text("Refresh Location"),
+                        label: const Text('Refresh Location'),
                       ),
                     ),
                   ],
@@ -702,12 +705,9 @@ class _MyHomePageState extends State<MyHomePage>
 
             const SizedBox(height: 30),
 
-            // ==================================================
             // QUICK ACTIONS
-            // ==================================================
-
             const Text(
-              "Quick Actions",
+              'Quick Actions',
               style: TextStyle(
                 fontWeight: FontWeight.bold,
                 fontSize: 18,
@@ -719,7 +719,7 @@ class _MyHomePageState extends State<MyHomePage>
             // EMERGENCY CONTACTS
             actionButton(
               Icons.contacts,
-              "Emergency Contacts",
+              'Emergency Contacts',
                   () async {
                 await Navigator.push(
                   context,
@@ -732,9 +732,8 @@ class _MyHomePageState extends State<MyHomePage>
                 if (!mounted) return;
 
                 loadContacts();
-
-                // Check native BLE status when returning
                 checkNativeBleConnection();
+                BleManager.instance.loadSavedBattery();
               },
             ),
 
@@ -743,11 +742,11 @@ class _MyHomePageState extends State<MyHomePage>
             // DEVICE SETTINGS
             actionButton(
               Icons.settings,
-              "Device Settings",
+              'Device Settings',
                   () {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
-                    content: Text("Coming Soon"),
+                    content: Text('Coming Soon'),
                   ),
                 );
               },
@@ -758,7 +757,7 @@ class _MyHomePageState extends State<MyHomePage>
             // TEST SOS
             actionButton(
               Icons.warning_amber_rounded,
-              "Test SOS",
+              'Test SOS',
               testSOS,
             ),
           ],

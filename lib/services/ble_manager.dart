@@ -1,4 +1,3 @@
-
 import 'dart:async';
 import 'dart:convert';
 
@@ -40,9 +39,10 @@ class BleManager {
   Function(String message)? onMessageReceived;
   VoidCallback? onConnectionChanged;
 
-  // Battery information received from ESP32
+  // Battery information
   double? batteryVoltage;
   int? batteryPercentage;
+  int? batteryUpdatedAt;
   VoidCallback? onBatteryChanged;
 
   StreamSubscription<List<ScanResult>>? _scanSubscription;
@@ -54,8 +54,77 @@ class BleManager {
   bool allowReconnect = false;
   bool isConnected = false;
   bool _loadingSavedDevice = false;
+  bool _loadingSavedBattery = false;
 
   Completer<bool>? _connectionCompleter;
+
+  // ==============================
+  // LOAD SAVED BATTERY
+  // ==============================
+  Future<void> loadSavedBattery() async {
+    if (_loadingSavedBattery) return;
+
+    _loadingSavedBattery = true;
+
+    try {
+      final dynamic response =
+      await _serviceChannel.invokeMethod('getSavedBattery');
+
+      if (response == null) {
+        debugPrint('No saved battery information found');
+        return;
+      }
+
+      if (response is! Map) {
+        debugPrint('Unexpected saved battery response: $response');
+        return;
+      }
+
+      final voltageValue = response['voltage'];
+      final percentageValue = response['percentage'];
+      final updatedAtValue = response['updatedAt'];
+
+      if (voltageValue == null || percentageValue == null) {
+        debugPrint('Saved battery information is incomplete');
+        return;
+      }
+
+      final voltage = double.tryParse(voltageValue.toString());
+      final percentage = int.tryParse(percentageValue.toString());
+      final updatedAt = updatedAtValue == null
+          ? null
+          : int.tryParse(updatedAtValue.toString());
+
+      if (voltage == null ||
+          !voltage.isFinite ||
+          percentage == null ||
+          percentage < 0 ||
+          percentage > 100) {
+        debugPrint('Invalid saved battery information');
+        return;
+      }
+
+      batteryVoltage = voltage;
+      batteryPercentage = percentage;
+      batteryUpdatedAt = updatedAt;
+
+      debugPrint(
+        'Restored saved battery: '
+            '$batteryVoltage V, $batteryPercentage%',
+      );
+
+      onBatteryChanged?.call();
+    } on PlatformException catch (e) {
+      debugPrint(
+        'Could not restore saved battery: '
+            '${e.code} - ${e.message}',
+      );
+    } catch (e) {
+      debugPrint('Saved battery restore error: $e');
+    } finally {
+      _loadingSavedBattery = false;
+    }
+  }
 
   // ==============================
   // SAVE BLE DEVICE
@@ -75,13 +144,9 @@ class BleManager {
         {'deviceId': deviceId},
       );
 
-      debugPrint(
-        "Native service BLE device saved: $deviceId",
-      );
+      debugPrint("Native service BLE device saved: $deviceId");
     } catch (e) {
-      debugPrint(
-        "Failed to save BLE device to native service: $e",
-      );
+      debugPrint("Failed to save BLE device to native service: $e");
     }
   }
 
@@ -93,14 +158,12 @@ class BleManager {
       ) async {
     debugPrint("Discovering Services...");
 
-    List<BluetoothService> services =
-    await device.discoverServices();
+    final services = await device.discoverServices();
 
-    for (BluetoothService service in services) {
+    for (final service in services) {
       if (service.uuid.toString().toUpperCase() ==
           serviceUuid.toUpperCase()) {
-        for (BluetoothCharacteristic characteristic
-        in service.characteristics) {
+        for (final characteristic in service.characteristics) {
           if (characteristic.uuid.toString().toUpperCase() ==
               characteristicUuid.toUpperCase()) {
             notifyCharacteristic = characteristic;
@@ -113,26 +176,29 @@ class BleManager {
                 characteristic.lastValueStream.listen((value) {
                   if (value.isEmpty) return;
 
-                  String message = utf8.decode(value).trim();
+                  final message = utf8.decode(value).trim();
 
                   debugPrint("Received : $message");
 
-                  // Battery message format:
-                  // BATTERY:3.63,24
+                  // Battery format: BATTERY:3.63,52
                   if (message.startsWith("BATTERY:")) {
                     try {
-                      final data =
-                      message.substring(8).split(",");
+                      final data = message.substring(8).split(",");
 
                       if (data.length == 2) {
-                        final voltage =
-                        double.parse(data[0].trim());
-                        final percentage =
-                        int.parse(data[1].trim());
+                        final voltage = double.parse(data[0].trim());
+                        final percentage = int.parse(data[1].trim());
+
+                        if (!voltage.isFinite ||
+                            percentage < 0 ||
+                            percentage > 100) {
+                          throw const FormatException(
+                            'Invalid battery reading',
+                          );
+                        }
 
                         batteryVoltage = voltage;
-                        batteryPercentage =
-                            percentage.clamp(0, 100);
+                        batteryPercentage = percentage;
 
                         debugPrint(
                           "Battery: $batteryVoltage V, "
@@ -146,12 +212,11 @@ class BleManager {
                     }
                   }
 
-                  // Preserve existing SOS message handling
+                  // Preserve existing SOS message handling.
                   onMessageReceived?.call(message);
                 });
 
             debugPrint("Notification Ready");
-
             return;
           }
         }
@@ -185,7 +250,6 @@ class BleManager {
     }
 
     isConnected = false;
-
     onConnectionChanged?.call();
 
     connectedDevice = null;
@@ -199,7 +263,6 @@ class BleManager {
   // ==============================
   Future<String?> getSavedDevice() async {
     final prefs = await SharedPreferences.getInstance();
-
     final id = prefs.getString("saved_ble_device");
 
     debugPrint("Saved Device Loaded: $id");
@@ -237,9 +300,7 @@ class BleManager {
   // WAIT FOR CONNECTION
   // ==============================
   Future<bool> waitForConnection() async {
-    if (isConnected) {
-      return true;
-    }
+    if (isConnected) return true;
 
     _connectionCompleter = Completer<bool>();
 
@@ -276,7 +337,6 @@ class BleManager {
             await subscription?.cancel();
 
             await connect(result.device);
-
             return;
           }
         }
@@ -397,7 +457,6 @@ class BleManager {
             await FlutterBluePlus.stopScan();
 
             await connect(result.device);
-
             return;
           }
         }

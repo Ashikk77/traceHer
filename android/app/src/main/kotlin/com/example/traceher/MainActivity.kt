@@ -1,3 +1,4 @@
+
 package com.example.traceher
 
 import android.Manifest
@@ -14,15 +15,26 @@ class MainActivity : FlutterActivity() {
     private val CHANNEL_V2 = "traceher/sms_v2"
     private val SERVICE_CHANNEL = "traceher/service"
 
+    companion object {
+        private const val BATTERY_VOLTAGE_KEY =
+            "traceher_battery_voltage"
+
+        private const val BATTERY_PERCENTAGE_KEY =
+            "traceher_battery_percentage"
+
+        private const val BATTERY_UPDATED_AT_KEY =
+            "traceher_battery_updated_at"
+    }
+
     override fun configureFlutterEngine(
         flutterEngine: FlutterEngine
     ) {
 
         super.configureFlutterEngine(flutterEngine)
 
-        // ==========================
-        // FOREGROUND SERVICE CHANNEL
-        // ==========================
+        // ==========================================
+        // FOREGROUND SERVICE AND BATTERY CHANNEL
+        // ==========================================
 
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
@@ -31,9 +43,9 @@ class MainActivity : FlutterActivity() {
 
             when (call.method) {
 
-                // ==========================
+                // ==========================================
                 // CHECK NATIVE BLE STATUS
-                // ==========================
+                // ==========================================
 
                 "isBleConnected" -> {
 
@@ -48,9 +60,82 @@ class MainActivity : FlutterActivity() {
                     result.success(connected)
                 }
 
-                // ==========================
+                // ==========================================
+                // GET SAVED BATTERY READING
+                // ==========================================
+
+                "getSavedBattery" -> {
+
+                    try {
+
+                        val prefs = getSharedPreferences(
+                            "TraceHerNativePrefs",
+                            MODE_PRIVATE
+                        )
+
+                        val hasBatteryReading =
+                            prefs.contains(BATTERY_PERCENTAGE_KEY) &&
+                                    prefs.contains(BATTERY_VOLTAGE_KEY)
+
+                        if (!hasBatteryReading) {
+
+                            android.util.Log.d(
+                                "TraceHerService",
+                                "No saved battery reading available yet"
+                            )
+
+                            result.success(null)
+
+                            return@setMethodCallHandler
+                        }
+
+                        val voltage = prefs.getFloat(
+                            BATTERY_VOLTAGE_KEY,
+                            0.0f
+                        )
+
+                        val percentage = prefs.getInt(
+                            BATTERY_PERCENTAGE_KEY,
+                            -1
+                        )
+
+                        val updatedAt = prefs.getLong(
+                            BATTERY_UPDATED_AT_KEY,
+                            0L
+                        )
+
+                        val batteryData = mapOf(
+                            "voltage" to voltage.toDouble(),
+                            "percentage" to percentage,
+                            "updatedAt" to updatedAt
+                        )
+
+                        android.util.Log.d(
+                            "TraceHerService",
+                            "Saved battery requested: $batteryData"
+                        )
+
+                        result.success(batteryData)
+
+                    } catch (e: Exception) {
+
+                        android.util.Log.e(
+                            "TraceHerService",
+                            "Failed to read saved battery",
+                            e
+                        )
+
+                        result.error(
+                            "BATTERY_READ_ERROR",
+                            "Could not read saved battery information",
+                            null
+                        )
+                    }
+                }
+
+                // ==========================================
                 // SAVE BLE DEVICE
-                // ==========================
+                // ==========================================
 
                 "saveBleDevice" -> {
 
@@ -93,15 +178,12 @@ class MainActivity : FlutterActivity() {
                         "========================================"
                     )
 
-                    // ==========================================
-                    // SAVE DEVICE ADDRESS FOR NATIVE SERVICE
-                    // ==========================================
+                    // Save device address for native service.
 
-                    val prefs =
-                        getSharedPreferences(
-                            "TraceHerNativePrefs",
-                            MODE_PRIVATE
-                        )
+                    val prefs = getSharedPreferences(
+                        "TraceHerNativePrefs",
+                        MODE_PRIVATE
+                    )
 
                     prefs.edit()
                         .putString(
@@ -115,36 +197,25 @@ class MainActivity : FlutterActivity() {
                         "Native BLE device address saved = $deviceId"
                     )
 
-                    // ==========================================
-                    // START BLE FOREGROUND SERVICE AGAIN
-                    //
-                    // This makes onStartCommand() run again.
-                    // The service will now read the newly saved
-                    // native BLE address and connect to TraceHer.
-                    // ==========================================
+                    // Start foreground service again.
 
                     try {
 
-                        val intent =
-                            Intent(
-                                this,
-                                BleForegroundService::class.java
-                            )
+                        val intent = Intent(
+                            this,
+                            BleForegroundService::class.java
+                        )
 
                         if (
                             android.os.Build.VERSION.SDK_INT >=
                             android.os.Build.VERSION_CODES.O
                         ) {
 
-                            startForegroundService(
-                                intent
-                            )
+                            startForegroundService(intent)
 
                         } else {
 
-                            startService(
-                                intent
-                            )
+                            startService(intent)
                         }
 
                         android.util.Log.e(
@@ -164,65 +235,53 @@ class MainActivity : FlutterActivity() {
                     result.success(true)
                 }
 
-                // ==========================
+                // ==========================================
                 // START SERVICE
-                // ==========================
+                // ==========================================
 
                 "startService" -> {
 
-                    val intent =
-                        Intent(
-                            this,
-                            BleForegroundService::class.java
-                        )
+                    val intent = Intent(
+                        this,
+                        BleForegroundService::class.java
+                    )
 
                     if (
                         android.os.Build.VERSION.SDK_INT >=
                         android.os.Build.VERSION_CODES.O
                     ) {
 
-                        startForegroundService(
-                            intent
-                        )
+                        startForegroundService(intent)
 
                     } else {
 
-                        startService(
-                            intent
-                        )
+                        startService(intent)
                     }
 
-                    result.success(
-                        "Service Started"
-                    )
+                    result.success("Service Started")
                 }
 
-                // ==========================
+                // ==========================================
                 // START BLE MONITORING
-                // ==========================
+                // ==========================================
 
                 "startBleMonitoring" -> {
 
-                    val intent =
-                        Intent(
-                            this,
-                            BleForegroundService::class.java
-                        )
+                    val intent = Intent(
+                        this,
+                        BleForegroundService::class.java
+                    )
 
                     if (
                         android.os.Build.VERSION.SDK_INT >=
                         android.os.Build.VERSION_CODES.O
                     ) {
 
-                        startForegroundService(
-                            intent
-                        )
+                        startForegroundService(intent)
 
                     } else {
 
-                        startService(
-                            intent
-                        )
+                        startService(intent)
                     }
 
                     android.util.Log.d(
@@ -230,18 +289,16 @@ class MainActivity : FlutterActivity() {
                         "Native BLE monitoring requested from Flutter"
                     )
 
-                    result.success(
-                        "BLE Monitoring Started"
-                    )
+                    result.success("BLE Monitoring Started")
                 }
 
                 else -> result.notImplemented()
             }
         }
 
-        // ==========================
+        // ==========================================
         // OLD SMS CHANNEL
-        // ==========================
+        // ==========================================
 
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
@@ -256,10 +313,7 @@ class MainActivity : FlutterActivity() {
                 val message =
                     call.argument<String>("message")
 
-                if (
-                    phone == null ||
-                    message == null
-                ) {
+                if (phone == null || message == null) {
 
                     result.error(
                         "INVALID",
@@ -270,18 +324,15 @@ class MainActivity : FlutterActivity() {
                     return@setMethodCallHandler
                 }
 
-                val success =
-                    SmsSender.sendSMS(
-                        this,
-                        phone,
-                        message
-                    )
+                val success = SmsSender.sendSMS(
+                    this,
+                    phone,
+                    message
+                )
 
                 if (success) {
 
-                    result.success(
-                        "SMS Sent"
-                    )
+                    result.success("SMS Sent")
 
                 } else {
 
@@ -298,9 +349,9 @@ class MainActivity : FlutterActivity() {
             }
         }
 
-        // ==========================
+        // ==========================================
         // SMS V2 CHANNEL
-        // ==========================
+        // ==========================================
 
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
@@ -315,10 +366,7 @@ class MainActivity : FlutterActivity() {
                 val message =
                     call.argument<String>("message")
 
-                if (
-                    phone == null ||
-                    message == null
-                ) {
+                if (phone == null || message == null) {
 
                     result.error(
                         "INVALID",
@@ -339,12 +387,11 @@ class MainActivity : FlutterActivity() {
                     "Message: $message"
                 )
 
-                val success =
-                    SmsSender.sendSMS(
-                        this,
-                        phone,
-                        message
-                    )
+                val success = SmsSender.sendSMS(
+                    this,
+                    phone,
+                    message
+                )
 
                 if (success) {
 
@@ -353,9 +400,7 @@ class MainActivity : FlutterActivity() {
                         "SMS Sent Successfully"
                     )
 
-                    result.success(
-                        "V2 SMS Sent"
-                    )
+                    result.success("V2 SMS Sent")
 
                 } else {
 
